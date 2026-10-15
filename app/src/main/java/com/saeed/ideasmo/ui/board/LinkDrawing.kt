@@ -136,3 +136,27 @@ internal fun trimToNodeEdge(from: Offset, to: Offset, halfW: Float, halfH: Float
     val t = min(1f, min(tx, ty))
     return Offset(to.x - dx * t, to.y - dy * t)
 }
+
+/**
+ * Distance from a point to a line segment — the basis of "tap a link to open it".
+ * A link is a 2px line, so a tap has to be matched against the segment rather than a rectangle.
+ */
+internal fun distanceToSegment(point: Offset, start: Offset, end: Offset): Float {
+    val dx = end.x - start.x
+    val dy = end.y - start.y
+    val lengthSquared = dx * dx + dy * dy
+    if (lengthSquared <= 0.0001f) {
+        val px = point.x - start.x
+        val py = point.y - start.y
+        return kotlin.math.sqrt(px * px + py * py)
+    }
+    val t = (((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared).coerceIn(0f, 1f)
+    val cx = start.x + dx * t
+    val cy = start.y + dy * t
+    val px = point.x - cx
+    val py = point.y - cy
+    return kotlin.math.sqrt(px * px + py * py)
+}
+
+/** How close a tap must land to a link to count as hitting it, in dp (converted per screen). */
+internal const val LINK_TAP_SLOP_DP = 22f

@@ -180,6 +180,63 @@ placeholder). Help documents the board gestures and **the entire relation catalo
 direction flag stored (the arrow shows the reading direction); loop detection over causal polarity is
 possible but not implemented.
 
+### 6.6 Clickable links, the node panel, the structure layer and board modes (v0.6.0)
+
+Saeed's order (2026-10-15): *links must be clickable and fully editable; every node must show the
+links that leave it and the links that arrive at it; the structure of the map must be orderable —
+with central nodes, sub-nodes, sub-links, expand/collapse and movement in four directions; and the
+top-left corner must hold the project settings, starting with the board mode (eight patterns) and
+the board's graphic theme.*
+
+**A link is an object, not a side effect.** `NodeLink` gained an `id`, a colour override and a
+branch `order`. That is what makes a link editable in place: type, phrase, direction and colour can
+all change without deleting and recreating it, and an old `nodes.json` is migrated on load (ids are
+generated for links written by earlier versions).
+
+**Tapping a link (the link inspector).** A tap on the canvas is matched against the line segments
+(distance to segment ≤ 26 px) and against the relation name chips, both of which open the same
+inspector. It shows what the relation reads as, which two nodes it joins (From / To), the type's
+meaning and example, **the other relations between the same pair** (each one tappable), the full
+42-type catalog to change the relation, a colour override (five theme roles), a custom phrase, a
+**Swap** action for the direction, and **Delete with Undo**. A tapped link is also highlighted on
+the board with a halo, so it is findable when several relations cross the same area.
+
+**Inside a node (the node panel).** Selecting a node shows the action bar — *Links · Link · Delete*;
+long-pressing the node opens the panel directly. The panel lists **Links out** (in stored branch
+order, numbered, with up/down arrows and auto-order by name / priority / age) and **Links in**, plus
+the central-node toggle, the collapse toggle, the four direction buttons and Arrange. Every row
+opens the link inspector, so a relation is reachable from either end and always edited the same way.
+
+**Structure.** `StructureLayout` is a pure-Kotlin engine (no Android, no Compose — so it is
+unit-tested on the JVM). Grounded in how established mind-map tools behave (Xmind documents
+*structures*, *Advanced Layout* with free branch positioning and a one-click *Reorganize*):
+- A **central node** can be set on any node, more than one is allowed, and it is toggleable. Each
+  central node starts its own tree.
+- **Arrange** lays those trees out in one of five directions — **Right, Left, Down, Up, Radial** —
+  at one of three spacings (Compact / Normal / Wide), always following the branch order the user
+  set. With no central node designated it falls back to "every node nothing points at is a root",
+  so Arrange is useful before any structure exists. The whole operation offers **Undo**.
+- **Collapse** hides a node's subtree (the data is kept, the card shows `+N hidden`, and expanding
+  or *Expand all* brings it straight back). **Collapse all / Expand all** live in the settings.
+- **Movement**: four direction buttons move a node **and everything under it** by 40 board units.
+- Nodes that belong to no tree are never moved by Arrange.
+
+**Project settings (top-left button on the board).** The first section is the **board mode** — eight
+surfaces, each shown as a live miniature in the current theme: **Plain**, **Grid** (the original
+surface, still the default), **Dots**, **Graph paper**, **Ruled lines**, **Isometric**, **Hex** and
+**Blueprint** (which adds crosshair ticks). Then the **board theme** — App theme (follows day/night
+and dynamic colour), Paper, Warm, Mint, Charcoal, Blueprint. Then **Structure** (direction, spacing,
+Arrange, collapse/expand all) and **Display** (relation names on the board, the travelling minimap).
+Every pattern is drawn in world space and transformed, so the surface pans and zooms with the board.
+Patterns whose geometry would cost too much at low zoom (hex) or become a grey mush (grids, dots)
+skip themselves instead of stuttering.
+
+**Honest limits of v0.6.0:** Arrange is a tree layout, so a dense graph with many cross-links is
+tidied along its trees and the extra links are left as they are (no force-directed pass yet); the
+minimap is still not interactive; there is no multi-select and no rubber-band selection; collapse
+hides a subtree from the board and the list (a badge and *Expand all* are the way back); nothing has
+been device-tested yet — Saeed's install is the first real check.
+
 ## 7. Assets
 
 - **Icons:** `material-icons-extended` 1.7.2 (local, no download). Outlined for chrome.
@@ -226,3 +283,19 @@ no dependency where a Compose `Canvas` would do.
 - Rounds of self-critique: 1 per version (structure/token pass against the checklist above).
 - Saeed's verdict on v0.1.0 (2026-10-15): everything works, the design improved a lot, accepted.
 - Open visual issues: none known; first judgement of the new screens belongs to Saeed on the device.
+
+### v0.6.0 sign-off (2026-10-15)
+
+- Implemented: clickable/editable links (link inspector), the node panel with ordered Links out and
+  Links in, the structure layer (central nodes, branch order, collapse, five layout directions,
+  Arrange with Undo), the project settings behind the top-left button with eight board modes and six
+  board themes, and a list view that mirrors the board.
+- Verified how: `:app:testDebugUnitTest` **10/10 green** (the structure engine, on the JVM) and
+  `:app:assembleDebug` **BUILD SUCCESSFUL in 3m 27s with 0 warnings**; APK badging checked
+  (versionCode 6 / versionName 0.6.0); every new class confirmed present in the APK's dex.
+- Not verified: the visual result and the touch behaviour on the device. No screenshot tooling is
+  set up (Paparazzi remains unproven on this toolchain), so the first real check is Saeed installing
+  `/sdcard/Download/ideasmo-debug.apk`.
+- Open visual questions for that check: does a link tap land reliably on a thin line; is the node
+  panel reachable often enough (single tap → action bar, long-press → panel); does the blueprint /
+  charcoal board read well against the node cards; does the hex pattern appear at normal zoom.

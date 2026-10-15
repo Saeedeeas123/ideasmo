@@ -55,6 +55,25 @@ fun HelpScreen(onBack: () -> Unit) {
         stringResource(R.string.help_gesture_list),
     )
     val families = LinkCatalog.byFamily()
+    val linkEditing = listOf(
+        stringResource(R.string.help_link_edit_1),
+        stringResource(R.string.help_link_edit_2),
+        stringResource(R.string.help_link_edit_3),
+        stringResource(R.string.help_link_edit_4),
+        stringResource(R.string.help_link_edit_5),
+    )
+    val structure = listOf(
+        stringResource(R.string.help_structure_1),
+        stringResource(R.string.help_structure_2),
+        stringResource(R.string.help_structure_3),
+        stringResource(R.string.help_structure_4),
+        stringResource(R.string.help_structure_5),
+    )
+    val boardMode = listOf(
+        stringResource(R.string.help_board_mode_1),
+        stringResource(R.string.help_board_mode_2),
+        stringResource(R.string.help_board_mode_3),
+    )
 
     Scaffold(
         topBar = {
@@ -90,6 +109,26 @@ fun HelpScreen(onBack: () -> Unit) {
                 SectionTitle(stringResource(R.string.help_board_title))
             }
             items(gestures, key = { it }) { line ->
+                HelpLine(text = line)
+            }
+            item(key = "link_edit_title") {
+                SectionTitle(stringResource(R.string.help_link_edit_title))
+            }
+            items(linkEditing, key = { "le_" + it }) { line ->
+                HelpLine(text = line)
+            }
+
+            item(key = "structure_title") {
+                SectionTitle(stringResource(R.string.help_structure_title))
+            }
+            items(structure, key = { "st_" + it }) { line ->
+                HelpLine(text = line)
+            }
+
+            item(key = "board_mode_title") {
+                SectionTitle(stringResource(R.string.help_board_mode_title))
+            }
+            items(boardMode, key = { "bm_" + it }) { line ->
                 HelpLine(text = line)
             }
 

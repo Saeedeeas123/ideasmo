@@ -147,4 +147,101 @@
     <string name="cd_theme_toggle">Switch day / night</string>
     <string name="theme_is_day">Day mode</string>
     <string name="theme_is_night">Night mode</string>
+
+    <!-- v0.6.0 · project settings (top-left button on the board) -->
+    <string name="cd_project_settings">Project settings</string>
+    <string name="project_settings_title">Project settings</string>
+    <string name="project_settings_detail">Board, structure and display for this workspace</string>
+    <string name="settings_board_mode">Board mode</string>
+    <string name="settings_board_theme">Board theme</string>
+    <string name="settings_structure">Structure</string>
+    <string name="settings_structure_detail">%1$d central node(s) · %2$d node(s) hidden by a collapsed branch</string>
+    <string name="settings_direction">Direction the map grows</string>
+    <string name="settings_spacing">Spacing between levels</string>
+    <string name="settings_display">Display</string>
+    <string name="settings_labels">Relation names on the board</string>
+    <string name="settings_labels_detail">Show the name of each relation on its line</string>
+    <string name="settings_minimap">Travelling minimap</string>
+    <string name="settings_minimap_detail">Show the minimap while you move around the board</string>
+
+    <!-- v0.6.0 · structure actions -->
+    <string name="tool_arrange">Arrange</string>
+    <string name="arrange_now">Arrange now</string>
+    <string name="arrange_done">Arranged %1$d node(s)</string>
+    <string name="arrange_nothing">Nothing to arrange — no nodes yet</string>
+    <string name="collapse_all">Collapse all</string>
+    <string name="expand_all">Expand all</string>
+    <string name="collapse_all_done">Every branch collapsed</string>
+    <string name="expand_all_done">Every branch expanded</string>
+
+    <!-- v0.6.0 · the link inspector -->
+    <string name="link_inspector_title">Link</string>
+    <string name="link_ends">Connects</string>
+    <string name="link_from">From</string>
+    <string name="link_to">To</string>
+    <string name="link_swap">Swap</string>
+    <string name="link_directed">One-way — the arrow shows the reading direction</string>
+    <string name="link_undirected">Both ways — no direction is claimed</string>
+    <string name="link_other_between">Other relations between these two nodes</string>
+    <string name="link_change_type">Change the relation</string>
+    <string name="link_colour">Colour</string>
+    <string name="link_colour_detail">The colour is a theme role, so it still works in day and night mode.</string>
+    <string name="link_colour_default">Type default</string>
+    <string name="link_colour_current">%1$s normally uses the %2$s role</string>
+    <string name="link_phrase">Your own phrase</string>
+    <string name="link_phrase_apply">Use this phrase</string>
+    <string name="link_phrase_clear">Clear phrase</string>
+    <string name="link_delete">Delete this link</string>
+    <string name="link_existing_hint">Tap one to edit it — type, colour, direction or phrase</string>
+    <string name="link_none_in_group">None</string>
+
+    <!-- v0.6.0 · the node panel -->
+    <string name="node_panel_counts">%1$d out · %2$d in · %3$d below</string>
+    <string name="node_central">Central node</string>
+    <string name="node_collapse">Collapse (%1$d)</string>
+    <string name="node_expand">Expand (%1$d)</string>
+    <string name="node_outgoing">Links out (%1$d)</string>
+    <string name="node_incoming">Links in (%1$d)</string>
+    <string name="node_no_outgoing">Nothing leaves this node yet.</string>
+    <string name="node_no_incoming">Nothing arrives at this node yet.</string>
+    <string name="node_order_hint">This order is what the board draws and what Arrange follows.</string>
+    <string name="order_manual">Manual</string>
+    <string name="order_name">By name</string>
+    <string name="order_priority">By priority</string>
+    <string name="order_created">By age</string>
+    <string name="order_applied">Branch order updated</string>
+    <string name="branch_up">Move up</string>
+    <string name="branch_down">Move down</string>
+    <string name="node_move">Move and arrange</string>
+    <string name="node_move_hint">Moves this node and the %1$d node(s) under it.</string>
+    <string name="move_left">Move left</string>
+    <string name="move_right">Move right</string>
+    <string name="move_up">Move up</string>
+    <string name="move_down">Move down</string>
+    <string name="node_arrange">Arrange the whole map</string>
+    <string name="node_add_link">Add a link</string>
+    <string name="node_hidden_badge">+%1$d hidden</string>
+    <string name="central_set">%1$s is now a central node</string>
+    <string name="central_cleared">%1$s is no longer central</string>
+    <string name="collapsed_hidden">%1$d node(s) hidden — the data is kept</string>
+    <string name="link_action_links">Links</string>
+    <string name="node_action_links">%1$d link(s) in total</string>
+
+    <!-- v0.6.0 · Help additions -->
+    <string name="help_link_edit_title">Editing a link</string>
+    <string name="help_link_edit_1">Tap a link on the board — or its name chip — and the link inspector opens.</string>
+    <string name="help_link_edit_2">It shows which two nodes the link joins and what the relation means.</string>
+    <string name="help_link_edit_3">Change the relation, swap its direction, give it a colour or your own phrase.</string>
+    <string name="help_link_edit_4">Delete it — Undo appears in the message at the bottom.</string>
+    <string name="help_link_edit_5">Every link is also reachable from inside a node: Links out and Links in.</string>
+    <string name="help_structure_title">Structure</string>
+    <string name="help_structure_1">Set a node as the central node — more than one is allowed, each starts its own tree.</string>
+    <string name="help_structure_2">Order the branches of a node with the arrows; Arrange follows that order.</string>
+    <string name="help_structure_3">Collapse a branch to hide its subtree, expand to bring it back. Nothing is deleted.</string>
+    <string name="help_structure_4">Move a node and everything under it with the four direction buttons.</string>
+    <string name="help_structure_5">Arrange lays the map out in the direction and spacing chosen in the settings.</string>
+    <string name="help_board_mode_title">Board mode and theme</string>
+    <string name="help_board_mode_1">The settings button at the top-left opens the project settings.</string>
+    <string name="help_board_mode_2">Eight board surfaces: plain, grid, dots, graph paper, ruled lines, isometric, hex and blueprint.</string>
+    <string name="help_board_mode_3">Six board themes — app theme, paper, warm, mint, charcoal and blueprint.</string>
 </resources>

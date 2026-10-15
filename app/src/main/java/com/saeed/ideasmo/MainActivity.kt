@@ -22,6 +22,7 @@ import androidx.compose.ui.platform.LocalContext
 import com.saeed.ideasmo.core.log.AppLog
 import com.saeed.ideasmo.core.log.LogViewerScreen
 import com.saeed.ideasmo.core.model.NodeStore
+import com.saeed.ideasmo.core.prefs.BoardPrefs
 import com.saeed.ideasmo.core.prefs.ThemePrefs
 import com.saeed.ideasmo.ui.board.BoardScreen
 import com.saeed.ideasmo.ui.help.HelpScreen
@@ -42,6 +43,7 @@ class MainActivity : ComponentActivity() {
         AppLog.init(applicationContext)
         AppLog.i("Lifecycle", "onCreate")
         NodeStore.init(applicationContext)
+        BoardPrefs.init(applicationContext)
         enableEdgeToEdge()
         setContent {
             IdeasmoApp()

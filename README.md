@@ -1,13 +1,86 @@
-# Template App — ready-to-build on-device starter
+# Ideasmo
 
-Frozen verified config (AGP 8.2.2 / Kotlin 1.9.22 / Compose 2024.02.00 / SDK 35 / buildTools 35.0.1 / JDK 17).
-See ../SKILL.md for the full workflow, routing, failure modes and provenance.
+An idea processor for Android: capture an idea, give it structure, keep it in one place.
+Personal project of Saeed (`com.saeed.ideasmo`), built entirely on-device.
 
-Setup (from SKILL.md §3):
-1. Copy to /root/projects/<app_name>
-2. Rename package com.example.templateapp → com.saeed.<app> (app/build.gradle.kts namespace+applicationId, MainActivity.kt package, AndroidManifest unchanged)
-3. Copy wrapper JAR: cp -r /root/projects/air-mouse/gradle/wrapper/* gradle/wrapper/
-4. git config user.email/user.name
-5. ./gradlew assembleDebug --no-daemon
-6. Ship: cp app/build/outputs/apk/debug/app-debug.apk /sdcard/Download/<app>-debug.apk && chmod 644
-7. GitHub private repo per SKILL.md §5 (mandatory)
+**Current version: v0.6.0** (versionCode 6)
+
+## What it is
+
+A **board** you travel through with touch — pan with one finger, pinch to zoom, drag the node cards —
+with **typed relations** between the nodes. A relation is a sentence, not just a line: the catalog
+holds 7 families and 42 types ("depends on", "is a", "contradicts", "causes" …), each with its own
+line style, arrow mode and colour role.
+
+## Feature map (v0.6.0)
+
+| Area | What works |
+|---|---|
+| Board | Pan, pinch zoom 25–200 %, drag nodes, grid/pattern surface, travelling minimap, reset view |
+| Nodes | Create with priority / name / description / picture; select, drag, delete with Undo |
+| Links | Create from a node or from the link manager; **tap a link to open the inspector** |
+| Link inspector | Change the relation, swap its direction, override its colour, add your own phrase, see the other relations between the same pair, delete with Undo |
+| Node panel | **Links out** in stored branch order (up/down arrows, auto-order by name / priority / age) and **Links in**; every row opens the inspector |
+| Structure | Central nodes (more than one), collapse/expand a branch, move a subtree left/right/up/down, **Arrange** in Right / Left / Down / Up / Radial at Compact / Normal / Wide spacing, with Undo |
+| Board modes | 8 surfaces — plain, grid, dots, graph paper, ruled lines, isometric, hex, blueprint — each with a live preview |
+| Board themes | App theme (day/night + dynamic colour), paper, warm, mint, charcoal, blueprint |
+| List view | The same nodes and the same relations, grouped into links out / links in, every row opening the inspector |
+| Settings | Day/night, Help, app logs, About |
+| Logging | Durable per-run log file + in-app log viewer with filters, copy, share, sessions (standing rule) |
+
+## Build (on this device — proot Ubuntu ARM64)
+
+Frozen toolchain: AGP 8.2.2 · Kotlin 1.9.22 · Compose BOM 2024.02.00 · compiler ext 1.5.8 ·
+activity-compose 1.8.2 · compileSdk/targetSdk 35 · buildTools 35.0.1 · JDK 17 · Gradle 8.5.
+`gradle.properties` must keep the aapt2 override (`android.aapt2FromMavenOverride` → the ARM-native
+binary); an x86_64 aapt2 from Maven cannot execute here.
+
+```bash
+cd /root/projects/ideasmo
+./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon   # ~3 min
+cp -f app/build/outputs/apk/debug/app-debug.apk /sdcard/Download/ideasmo-debug.apk
+chmod 644 /sdcard/Download/ideasmo-debug.apk
+```
+
+The APK is installed manually by Saeed — that is the designed handoff (the agent has no install path).
+
+## Source map
+
+```
+app/src/main/java/com/saeed/ideasmo/
+  MainActivity.kt              state-based navigation + theme state + log/prefs init
+  core/log/                    AppLog (durable per-run log) + LogViewerScreen
+  core/model/LinkCatalog.kt    the 7 families / 42 relation types — single source of truth
+  core/model/NodeStore.kt      nodes + links, JSON persistence, migration, structure operations
+  core/model/StructureLayout.kt  the layout engine — pure Kotlin, JVM-tested
+  core/prefs/                  ThemePrefs, BoardPrefs
+  ui/board/                    BoardScreen, BoardListView, BoardPatterns, LinkDrawing,
+                               LinkInspectorPanel, LinkPickerPanel, NodePanel,
+                               ProjectSettingsPanel, NodeFormPanel
+  ui/components/               Defaults (shared components), GridTile
+  ui/home · ui/project · ui/settings · ui/help · ui/theme
+app/src/test/java/.../StructureLayoutTest.kt   10 JVM tests for the structure engine
+DESIGN.md                    the design contract (tokens, screens, decisions, honest limits)
+```
+
+## Version history
+
+| Tag | What it added |
+|---|---|
+| v0.1.0 | Home screen (Compose M3 + design tokens), durable log + in-app viewer, adaptive icon |
+| v0.2.0 | Project grid + Idea node editor, real zoom, day/night theme, node store |
+| v0.3.0 | The board: pannable/pinch-zoom canvas with draggable nodes, visible grid, reset view |
+| v0.4.0 | Node relations on the board + list view, travelling minimap, delete with Undo |
+| v0.5.0 | Full typed-relation system (7 families / 42 types), link manager, real Settings + Help |
+| v0.6.0 | Clickable/editable links (link inspector), node panel (links in/out + branch order), structure layer (central nodes, collapse, 5-direction Arrange), 8 board modes + 6 board themes |
+
+## Honest limits (v0.6.0)
+
+- Arrange is a **tree** layout: dense graphs with many cross-links are tidied along their trees and the
+  extra links stay where they are (no force-directed pass yet).
+- The minimap is not interactive (deliberate — ordered left alone).
+- No multi-select, no rubber-band selection, no node resize, and **no node edit after creation**.
+- Collapse hides a subtree from the board and the list; a badge, the node panel's Expand or *Expand
+  all* bring it back.
+- No visual verification tooling (Paparazzi is unproven on this toolchain): the device install is the
+  only visual check.

@@ -4,7 +4,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -32,9 +31,12 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.FormatListBulleted
 import androidx.compose.material.icons.outlined.AccountTree
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.AutoFixHigh
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.LightMode
+import androidx.compose.material.icons.outlined.MyLocation
 import androidx.compose.material.icons.outlined.Remove
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -56,6 +58,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -64,7 +67,6 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -72,6 +74,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -80,10 +83,16 @@ import androidx.compose.ui.unit.dp
 import com.saeed.ideasmo.R
 import com.saeed.ideasmo.core.log.AppLog
 import com.saeed.ideasmo.core.model.IdeaNode
+import com.saeed.ideasmo.core.model.LayoutDirection
+import com.saeed.ideasmo.core.model.LayoutPoint
+import com.saeed.ideasmo.core.model.LayoutSpacing
 import com.saeed.ideasmo.core.model.LinkCatalog
+import com.saeed.ideasmo.core.model.LinkColor
 import com.saeed.ideasmo.core.model.LinkType
 import com.saeed.ideasmo.core.model.NodeLink
 import com.saeed.ideasmo.core.model.NodeStore
+import com.saeed.ideasmo.core.model.StructureLayout
+import com.saeed.ideasmo.core.prefs.BoardPrefs
 import com.saeed.ideasmo.core.util.copyPictureIntoAppStorage
 import com.saeed.ideasmo.ui.components.ToolButton
 import com.saeed.ideasmo.ui.theme.Radius
@@ -91,26 +100,35 @@ import com.saeed.ideasmo.ui.theme.Sizes
 import com.saeed.ideasmo.ui.theme.Spacing
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlin.math.floor
-import kotlin.math.max
 import kotlin.math.roundToInt
 
 private const val MIN_SCALE = 0.25f
 private const val MAX_SCALE = 2.0f
 private const val ZOOM_STEP = 0.25f
-private const val NODE_W = 200f
-private const val NODE_H_EST = 96f
-private const val GRID_STEP = 100f
+
+/** Card size in board units — shared with the structure engine so both agree on the geometry. */
+private const val NODE_W = StructureLayout.NODE_W
+private const val NODE_H_EST = StructureLayout.NODE_H
+
 private const val MINIMAP_LINGER_MS = 900L
 private const val MINIMAP_W = 200
 private const val MINIMAP_H = 140
 
 private enum class ViewMode { Board, List }
 
+/** Which full-screen panel is open. Only one at a time — a panel always covers the board. */
+private sealed interface Panel {
+    data class NodeInfo(val id: String) : Panel
+    data class Picker(val id: String) : Panel
+    data class LinkInfo(val id: String) : Panel
+    data object Settings : Panel
+}
+
 /** One link, resolved for drawing: screen endpoints, board-space midpoint and its label. */
 private data class RenderEdge(
-    val key: String,
+    val linkId: String,
     val type: LinkType,
+    val colorRole: LinkColor,
     val start: Offset,
     val end: Offset,
     val midBoard: Offset,
@@ -118,11 +136,13 @@ private data class RenderEdge(
 )
 
 /**
- * The board: a 2D surface you pan with one finger and pinch to zoom, with nodes you can drag
- * and typed relations between them. Shared by every module (Idea, Mindmap, Knowledge, Note).
+ * The board: a 2D surface you pan with one finger and pinch to zoom, with nodes you can drag and
+ * typed relations between them. Shared by every module (Idea, Mindmap, Knowledge, Note).
  *
- * A minimap appears while you travel and shows where you are, the surrounding nodes and your
- * finger as a red dot. It is deliberately not always visible, and it is not interactive.
+ * v0.6.0 adds the three things the board was missing: a **link you can tap** (it opens the link
+ * inspector), a **node panel** that lists the links leaving and arriving at a node in order, and a
+ * **structure** layer — central nodes, ordered branches, collapse and an auto-layout in five
+ * directions — plus the project settings behind the top-left button.
  */
 private class BoardState {
     var scale by mutableStateOf(1f)
@@ -196,8 +216,19 @@ fun BoardScreen(
     val scope = rememberCoroutineScope()
     val board = remember { BoardState() }
 
-    val nodes = NodeStore.nodesOf(kind)
-    val links = NodeStore.links
+    // Board settings are Compose state, so changing one re-draws the board immediately.
+    val pattern = BoardPattern.fromKey(BoardPrefs.patternKey)
+    val palette = BoardPalette.fromKey(BoardPrefs.paletteKey)
+    val direction = LayoutDirection.fromKey(BoardPrefs.directionKey)
+    val spacing = LayoutSpacing.fromKey(BoardPrefs.spacingKey)
+    val showLabels = BoardPrefs.showLinkLabels
+    val showMinimapPref = BoardPrefs.showMinimap
+
+    val allNodes = NodeStore.nodesOf(kind)
+    val hidden = NodeStore.hiddenIds()
+    val nodes = allNodes.filter { it.id !in hidden }
+    val nodeIds = nodes.map { it.id }.toSet()
+    val links = NodeStore.links.filter { it.fromId in nodeIds && it.toId in nodeIds }
 
     var viewMode by remember { mutableStateOf(ViewMode.Board) }
     var formOpen by remember { mutableStateOf(false) }
@@ -206,7 +237,8 @@ fun BoardScreen(
     var priority by remember { mutableStateOf(3) }
     var picPath by remember { mutableStateOf<String?>(null) }
     var selectedId by remember { mutableStateOf<String?>(null) }
-    var pickerFor by remember { mutableStateOf<String?>(null) }
+    var selectedLinkId by remember { mutableStateOf<String?>(null) }
+    var panel by remember { mutableStateOf<Panel?>(null) }
     var connectFrom by remember { mutableStateOf<String?>(null) }
     var pendingType by remember { mutableStateOf(LinkCatalog.default) }
     var pendingLabel by remember { mutableStateOf<String?>(null) }
@@ -284,7 +316,7 @@ fun BoardScreen(
             val label = pendingLabel
             when (NodeStore.addLink(context, from, node.id, pendingType.key, label)) {
                 "ok" -> {
-                    val fromName = NodeStore.byId(from)?.name ?: "?"
+                    val fromName = NodeStore.nameOf(from)
                     val phrase = LinkCatalog.displayLabel(pendingType, label)
                     AppLog.i("Board", "linked: '$fromName' $phrase '${node.name}'")
                     scope.launch {
@@ -308,7 +340,51 @@ fun BoardScreen(
             pendingType = LinkCatalog.default
         } else {
             selectedId = node.id
+            selectedLinkId = null
             AppLog.i("Board", "node selected: " + node.name)
+        }
+    }
+
+    // The auto-layout. It only moves the trees of the central nodes; free nodes are never touched,
+    // and the previous positions are kept so the whole thing can be undone.
+    val arrangeNow: () -> Unit = {
+        val ids = nodes.map { it.id }
+        val roots = NodeStore.rootIds(kind).filter { it in ids }
+        val originX = roots.mapNotNull { NodeStore.byId(it)?.x }.minOrNull()
+            ?: board.screenToWorldX(board.viewportW / 2f)
+        val originY = roots.mapNotNull { NodeStore.byId(it)?.y }.minOrNull()
+            ?: board.screenToWorldY(board.viewportH / 2f)
+        val positions = StructureLayout.arrange(
+            nodes = nodes,
+            links = links,
+            preferredRoots = roots,
+            direction = direction,
+            spacing = spacing,
+            originX = originX,
+            originY = originY,
+        )
+        if (positions.isEmpty()) {
+            AppLog.i("Board", "arrange: nothing to arrange")
+            scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.arrange_nothing)) }
+        } else {
+            val before = nodes.associate { it.id to LayoutPoint(it.x, it.y) }
+            NodeStore.applyPositions(context, positions)
+            AppLog.i(
+                "Board",
+                "arranged " + positions.size + " node(s) as " + direction.key + " / " + spacing.key +
+                    " from " + roots.size + " central node(s)",
+            )
+            scope.launch {
+                val result = snackbarHostState.showSnackbar(
+                    message = context.getString(R.string.arrange_done, positions.size),
+                    actionLabel = context.getString(R.string.undo),
+                    withDismissAction = true,
+                )
+                if (result == SnackbarResult.ActionPerformed) {
+                    NodeStore.applyPositions(context, before)
+                    AppLog.i("Board", "arrange undone")
+                }
+            }
         }
     }
 
@@ -322,11 +398,26 @@ fun BoardScreen(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                            contentDescription = stringResource(R.string.cd_back),
-                        )
+                    // Back, then the project settings — the settings button sits at the top-left
+                    // of the board, as ordered.
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = onBack) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                                contentDescription = stringResource(R.string.cd_back),
+                            )
+                        }
+                        IconButton(
+                            onClick = {
+                                panel = Panel.Settings
+                                AppLog.i("Board", "project settings opened")
+                            },
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Settings,
+                                contentDescription = stringResource(R.string.cd_project_settings),
+                            )
+                        }
                     }
                 },
                 actions = {
@@ -352,13 +443,16 @@ fun BoardScreen(
                         nodes = nodes,
                         selectedId = selectedId,
                         onSelect = onNodeTap,
+                        onOpenLink = { link ->
+                            panel = Panel.LinkInfo(link.id)
+                            AppLog.i("Board", "link opened from list: " + link.id)
+                        },
                         onGoToBoard = { viewMode = ViewMode.Board },
                         modifier = Modifier.weight(1f),
                     )
                 } else {
                     val scheme = MaterialTheme.colorScheme
-                    val gridMinor = scheme.outline.copy(alpha = 0.20f)
-                    val gridMajor = scheme.outline.copy(alpha = 0.45f)
+                    val boardColors = boardColorsOf(palette)
 
                     // Resolve every link once per frame: screen endpoints for drawing,
                     // board-space midpoint for the label chip.
@@ -380,8 +474,9 @@ fun BoardScreen(
                             val halfW = NODE_W / 2f * board.scale
                             val halfH = NODE_H_EST / 2f * board.scale
                             RenderEdge(
-                                key = link.fromId + link.toId + link.type + (link.label ?: ""),
+                                linkId = link.id,
                                 type = type,
+                                colorRole = link.colorRole(),
                                 start = trimToNodeEdge(from = bCenter, to = aCenter, halfW = halfW, halfH = halfH),
                                 end = trimToNodeEdge(from = aCenter, to = bCenter, halfW = halfW, halfH = halfH),
                                 midBoard = Offset(
@@ -396,7 +491,13 @@ fun BoardScreen(
                             )
                         }
                     }
-                    val edgeDraws = renderEdges.map { edge -> edge to linkColorOf(scheme, edge.type.color) }
+                    val edgeDraws = renderEdges.map { edge ->
+                        edge to linkColorOf(scheme, edge.colorRole)
+                    }
+                    val edgesState = rememberUpdatedState(renderEdges)
+                    // A finger is ~40dp wide, so the hit band is a dp value, not a pixel count —
+                    // 26 raw pixels would be under 10dp on a 3x display and nearly untappable.
+                    val tapSlopPx = with(LocalDensity.current) { LINK_TAP_SLOP_DP.dp.toPx() }
 
                     Box(
                         modifier = Modifier
@@ -408,7 +509,23 @@ fun BoardScreen(
                                 board.viewportH = it.height.toFloat()
                             }
                             .drawBehind {
-                                drawBoardGrid(board, gridMinor, gridMajor)
+                                drawBoardBackground(
+                                    pattern = pattern,
+                                    scale = board.scale,
+                                    offsetX = board.offsetX,
+                                    offsetY = board.offsetY,
+                                    colors = boardColors,
+                                )
+                                // The selected link gets a halo underneath, so a tapped line is
+                                // obvious even when several relations cross the same area.
+                                edgeDraws.firstOrNull { it.first.linkId == selectedLinkId }?.let { (edge, color) ->
+                                    drawLine(
+                                        color = color.copy(alpha = 0.35f),
+                                        start = edge.start,
+                                        end = edge.end,
+                                        strokeWidth = 10f * board.scale,
+                                    )
+                                }
                                 edgeDraws.forEach { (edge, color) ->
                                     drawTypedLink(edge.start, edge.end, edge.type, color, board.scale)
                                 }
@@ -426,7 +543,32 @@ fun BoardScreen(
                                 }
                             }
                             .pointerInput(kind) {
-                                detectTapGestures { selectedId = null }
+                                // A tap either hits a link (and opens the inspector) or clears the
+                                // selection. Links are drawn behind the cards, so a tap on a card
+                                // never reaches this handler. The edges are read through
+                                // rememberUpdatedState so panning and zooming never restart this
+                                // gesture detector mid-tap.
+                                detectTapGestures { position ->
+                                    val hit = edgesState.value
+                                        .map { edge ->
+                                            edge to distanceToSegment(position, edge.start, edge.end)
+                                        }
+                                        .filter { it.second <= tapSlopPx }
+                                        .minByOrNull { it.second }
+                                    if (hit != null) {
+                                        selectedLinkId = hit.first.linkId
+                                        selectedId = null
+                                        panel = Panel.LinkInfo(hit.first.linkId)
+                                        AppLog.i(
+                                            "Board",
+                                            "link tapped on board: " + hit.first.linkId +
+                                                " (distance " + hit.second.toInt() + "px)",
+                                        )
+                                    } else {
+                                        selectedLinkId = null
+                                        selectedId = null
+                                    }
+                                }
                             }
                             .pointerInput(kind) {
                                 // Tracks any touch on the board purely to drive the minimap.
@@ -463,13 +605,21 @@ fun BoardScreen(
                                     clip = false,
                                 ),
                         ) {
-                            renderEdges.forEach { edge ->
-                                if (edge.label != null) {
-                                    LinkLabelChip(
-                                        text = edge.label,
-                                        boardX = edge.midBoard.x,
-                                        boardY = edge.midBoard.y,
-                                    )
+                            if (showLabels) {
+                                renderEdges.forEach { edge ->
+                                    if (edge.label != null) {
+                                        LinkLabelChip(
+                                            text = edge.label,
+                                            boardX = edge.midBoard.x,
+                                            boardY = edge.midBoard.y,
+                                            selected = edge.linkId == selectedLinkId,
+                                            onClick = {
+                                                selectedLinkId = edge.linkId
+                                                panel = Panel.LinkInfo(edge.linkId)
+                                                AppLog.i("Board", "link opened from its label: " + edge.linkId)
+                                            },
+                                        )
+                                    }
                                 }
                             }
                             nodes.forEach { node ->
@@ -477,14 +627,20 @@ fun BoardScreen(
                                     node = node,
                                     selected = node.id == selectedId,
                                     board = board,
+                                    hiddenBelow = if (node.collapsed) NodeStore.subtreeOf(node.id).size else 0,
                                     onTap = { onNodeTap(node) },
+                                    onOpenLinks = {
+                                        selectedId = node.id
+                                        panel = Panel.NodeInfo(node.id)
+                                        AppLog.i("Board", "node panel opened for '" + node.name + "'")
+                                    },
                                     onDragEnd = { NodeStore.persist(context) },
                                 )
                             }
                         }
 
                         // Minimap — only while travelling, never interactive
-                        if (minimapVisible) {
+                        if (minimapVisible && showMinimapPref) {
                             MiniMap(
                                 nodes = nodes,
                                 links = links,
@@ -569,13 +725,19 @@ fun BoardScreen(
                     } else if (selectedNode != null) {
                         NodeActionBar(
                             nodeName = selectedNode.name,
+                            linkCount = NodeStore.linksOf(selectedNode.id).size,
+                            onLinks = {
+                                panel = Panel.NodeInfo(selectedNode.id)
+                                AppLog.i("Board", "node panel opened for '" + selectedNode.name + "'")
+                            },
                             onLink = {
-                                pickerFor = selectedNode.id
+                                panel = Panel.Picker(selectedNode.id)
                                 AppLog.i("Board", "link manager opened for '" + selectedNode.name + "'")
                             },
                             onDelete = {
                                 val removed = NodeStore.remove(context, selectedNode.id)
                                 selectedId = null
+                                panel = null
                                 if (removed != null) {
                                     scope.launch {
                                         val result = snackbarHostState.showSnackbar(
@@ -594,7 +756,7 @@ fun BoardScreen(
                     }
                 }
 
-                // Bottom toolbar: board / list · zoom
+                // Bottom toolbar: board / arrange · zoom · list
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceVariant,
                     modifier = Modifier.fillMaxWidth(),
@@ -619,6 +781,12 @@ fun BoardScreen(
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             val onBoard = viewMode == ViewMode.Board
+                            ToolButton(
+                                icon = Icons.Outlined.AutoFixHigh,
+                                contentDescription = stringResource(R.string.tool_arrange),
+                                enabled = onBoard,
+                                onClick = arrangeNow,
+                            )
                             ToolButton(
                                 icon = Icons.Outlined.Remove,
                                 contentDescription = stringResource(R.string.cd_zoom_out),
@@ -675,96 +843,175 @@ fun BoardScreen(
                 }
             }
 
-            // The link manager covers the whole screen while it is open.
-            val pickerNode = pickerFor?.let { NodeStore.byId(it) }
-            if (pickerNode != null) {
-                LinkPickerPanel(
-                    fromNode = pickerNode,
-                    onPick = { type ->
-                        pendingType = type
-                        pendingLabel = null
-                        connectFrom = pickerNode.id
-                        pickerFor = null
-                        selectedId = null
-                        AppLog.i("Board", "link type chosen: " + type.key)
-                        scope.launch {
-                            snackbarHostState.showSnackbar(
-                                context.getString(R.string.link_choose_hint, type.name),
-                            )
-                        }
-                    },
-                    onCustom = { phrase ->
-                        pendingType = LinkCatalog.default
-                        pendingLabel = phrase
-                        connectFrom = pickerNode.id
-                        pickerFor = null
-                        selectedId = null
-                        AppLog.i("Board", "custom link phrase: " + phrase)
-                        scope.launch {
-                            snackbarHostState.showSnackbar(
-                                context.getString(R.string.link_choose_hint, phrase),
-                            )
-                        }
-                    },
-                    onRemove = { link ->
-                        val removed = NodeStore.removeLink(context, link)
-                        if (removed != null) {
+            // ---- panels: exactly one can be open, and each one covers the board ----
+            when (val open = panel) {
+                is Panel.NodeInfo -> NodeStore.byId(open.id)?.let { node ->
+                    NodePanel(
+                        node = node,
+                        onClose = { panel = null },
+                        onOpenLink = { link -> panel = Panel.LinkInfo(link.id) },
+                        onAddLink = { panel = Panel.Picker(node.id) },
+                        onReorder = { link, delta ->
+                            NodeStore.reorderLink(context, link.id, delta)
+                        },
+                        onAutoOrder = { mode ->
+                            NodeStore.autoOrder(context, node.id, mode)
                             scope.launch {
-                                val result = snackbarHostState.showSnackbar(
-                                    message = context.getString(R.string.link_removed),
-                                    actionLabel = context.getString(R.string.undo),
-                                    withDismissAction = true,
+                                snackbarHostState.showSnackbar(context.getString(R.string.order_applied))
+                            }
+                        },
+                        onToggleRoot = {
+                            val next = !node.isRoot
+                            NodeStore.setRoot(context, node.id, next)
+                            scope.launch {
+                                snackbarHostState.showSnackbar(
+                                    context.getString(
+                                        if (next) R.string.central_set else R.string.central_cleared,
+                                        node.name,
+                                    ),
                                 )
-                                if (result == SnackbarResult.ActionPerformed) {
-                                    NodeStore.restoreLink(context, removed)
-                                    AppLog.i("Board", "link removal undone")
+                            }
+                        },
+                        onToggleCollapse = {
+                            val next = !node.collapsed
+                            val count = NodeStore.subtreeOf(node.id).size
+                            NodeStore.setCollapsed(context, node.id, next)
+                            if (next && count > 0) {
+                                scope.launch {
+                                    val result = snackbarHostState.showSnackbar(
+                                        message = context.getString(R.string.collapsed_hidden, count),
+                                        actionLabel = context.getString(R.string.undo),
+                                        withDismissAction = true,
+                                    )
+                                    if (result == SnackbarResult.ActionPerformed) {
+                                        NodeStore.setCollapsed(context, node.id, false)
+                                        AppLog.i("Board", "collapse undone for '" + node.name + "'")
+                                    }
                                 }
                             }
-                        }
+                        },
+                        onNudge = { dx, dy -> NodeStore.moveSubtree(context, node.id, dx, dy) },
+                        onArrange = arrangeNow,
+                        onDelete = {
+                            val removed = NodeStore.remove(context, node.id)
+                            panel = null
+                            selectedId = null
+                            if (removed != null) {
+                                scope.launch {
+                                    val result = snackbarHostState.showSnackbar(
+                                        message = context.getString(R.string.node_deleted),
+                                        actionLabel = context.getString(R.string.undo),
+                                        withDismissAction = true,
+                                    )
+                                    if (result == SnackbarResult.ActionPerformed) {
+                                        NodeStore.restore(context, removed.first, removed.second)
+                                    }
+                                }
+                            }
+                        },
+                    )
+                }
+
+                is Panel.Picker -> NodeStore.byId(open.id)?.let { node ->
+                    LinkPickerPanel(
+                        fromNode = node,
+                        onPick = { type ->
+                            pendingType = type
+                            pendingLabel = null
+                            connectFrom = node.id
+                            panel = null
+                            selectedId = null
+                            AppLog.i("Board", "link type chosen: " + type.key)
+                            scope.launch {
+                                snackbarHostState.showSnackbar(
+                                    context.getString(R.string.link_choose_hint, type.name),
+                                )
+                            }
+                        },
+                        onCustom = { phrase ->
+                            pendingType = LinkCatalog.default
+                            pendingLabel = phrase
+                            connectFrom = node.id
+                            panel = null
+                            selectedId = null
+                            AppLog.i("Board", "custom link phrase: " + phrase)
+                            scope.launch {
+                                snackbarHostState.showSnackbar(
+                                    context.getString(R.string.link_choose_hint, phrase),
+                                )
+                            }
+                        },
+                        onOpenLink = { link -> panel = Panel.LinkInfo(link.id) },
+                        onClose = { panel = null },
+                    )
+                }
+
+                is Panel.LinkInfo -> NodeStore.linkById(open.id)?.let { link ->
+                    LinkInspectorPanel(
+                        link = link,
+                        onUpdate = { updated ->
+                            when (NodeStore.updateLink(context, updated)) {
+                                "ok" -> AppLog.i("Board", "link updated: " + updated.id)
+                                "exists" -> scope.launch {
+                                    snackbarHostState.showSnackbar(context.getString(R.string.link_exists))
+                                }
+
+                                else -> AppLog.w("Board", "link update failed: link no longer exists")
+                            }
+                        },
+                        onOpenOther = { other -> panel = Panel.LinkInfo(other.id) },
+                        onDelete = {
+                            val removed = NodeStore.removeLink(context, link)
+                            panel = null
+                            selectedLinkId = null
+                            if (removed != null) {
+                                scope.launch {
+                                    val result = snackbarHostState.showSnackbar(
+                                        message = context.getString(R.string.link_removed),
+                                        actionLabel = context.getString(R.string.undo),
+                                        withDismissAction = true,
+                                    )
+                                    if (result == SnackbarResult.ActionPerformed) {
+                                        NodeStore.restoreLink(context, removed)
+                                        AppLog.i("Board", "link removal undone")
+                                    }
+                                }
+                            }
+                        },
+                        onClose = { panel = null },
+                    )
+                }
+
+                Panel.Settings -> ProjectSettingsPanel(
+                    pattern = pattern,
+                    palette = palette,
+                    direction = direction,
+                    spacing = spacing,
+                    showLabels = showLabels,
+                    showMinimap = showMinimapPref,
+                    rootCount = NodeStore.rootIds(kind).size,
+                    hiddenCount = hidden.size,
+                    onPattern = { BoardPrefs.setPattern(context, it.key) },
+                    onPalette = { BoardPrefs.setPalette(context, it.key) },
+                    onDirection = { BoardPrefs.setDirection(context, it.key) },
+                    onSpacing = { BoardPrefs.setSpacing(context, it.key) },
+                    onShowLabels = { BoardPrefs.setShowLinkLabels(context, it) },
+                    onShowMinimap = { BoardPrefs.setShowMinimap(context, it) },
+                    onArrange = arrangeNow,
+                    onCollapseAll = {
+                        NodeStore.setCollapsedAll(context, true)
+                        scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.collapse_all_done)) }
                     },
-                    onClose = { pickerFor = null },
+                    onExpandAll = {
+                        NodeStore.setCollapsedAll(context, false)
+                        scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.expand_all_done)) }
+                    },
+                    onClose = { panel = null },
                 )
+
+                null -> Unit
             }
         }
-    }
-}
-
-/** Draws only the grid lines that are actually visible, in viewport space. */
-private fun DrawScope.drawBoardGrid(board: BoardState, minor: Color, major: Color) {
-    val scale = board.scale
-    if (scale <= 0f) return
-    val stepPx = GRID_STEP * scale
-    if (stepPx < 6f) return
-
-    val worldLeft = board.screenToWorldX(0f)
-    val worldTop = board.screenToWorldY(0f)
-    val worldRight = board.screenToWorldX(size.width)
-    val worldBottom = board.screenToWorldY(size.height)
-
-    var wx = floor(worldLeft / GRID_STEP) * GRID_STEP
-    while (wx <= worldRight) {
-        val sx = wx * scale + board.offsetX
-        val isMajor = wx % (GRID_STEP * 5f) == 0f
-        drawLine(
-            color = if (isMajor) major else minor,
-            start = Offset(sx, 0f),
-            end = Offset(sx, size.height),
-            strokeWidth = if (isMajor) 1.5f else 1f,
-        )
-        wx += GRID_STEP
-    }
-
-    var wy = floor(worldTop / GRID_STEP) * GRID_STEP
-    while (wy <= worldBottom) {
-        val sy = wy * scale + board.offsetY
-        val isMajor = wy % (GRID_STEP * 5f) == 0f
-        drawLine(
-            color = if (isMajor) major else minor,
-            start = Offset(0f, sy),
-            end = Offset(size.width, sy),
-            strokeWidth = if (isMajor) 1.5f else 1f,
-        )
-        wy += GRID_STEP
     }
 }
 
@@ -819,7 +1066,7 @@ private fun MiniMap(
         border = BorderStroke(1.dp, borderColor),
         tonalElevation = 3.dp,
     ) {
-        Canvas(modifier = Modifier.fillMaxSize().padding(Spacing.s)) {
+        CanvasBox {
             val sx = size.width / worldW
             val sy = size.height / worldH
 
@@ -860,7 +1107,13 @@ private fun MiniMap(
 
 /** The relation name, pinned to the middle of its line. Moves and scales with the board. */
 @Composable
-private fun LinkLabelChip(text: String, boardX: Float, boardY: Float) {
+private fun LinkLabelChip(
+    text: String,
+    boardX: Float,
+    boardY: Float,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
     var chipSize by remember { mutableStateOf(IntSize.Zero) }
     Surface(
         modifier = Modifier
@@ -870,15 +1123,23 @@ private fun LinkLabelChip(text: String, boardX: Float, boardY: Float) {
                     boardY.roundToInt() - chipSize.height / 2,
                 )
             }
-            .onSizeChanged { chipSize = it },
-        color = MaterialTheme.colorScheme.surface,
+            .onSizeChanged { chipSize = it }
+            .clickable(onClick = onClick),
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(Radius.small),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        border = BorderStroke(
+            width = if (selected) 2.dp else 1.dp,
+            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+        ),
     ) {
         Text(
             text = text,
             style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurface,
+            color = if (selected) {
+                MaterialTheme.colorScheme.onPrimaryContainer
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            },
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(horizontal = Spacing.s, vertical = Spacing.xs),
@@ -889,6 +1150,8 @@ private fun LinkLabelChip(text: String, boardX: Float, boardY: Float) {
 @Composable
 private fun NodeActionBar(
     nodeName: String,
+    linkCount: Int,
+    onLinks: () -> Unit,
     onLink: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -902,14 +1165,32 @@ private fun NodeActionBar(
                 .padding(horizontal = Spacing.l, vertical = Spacing.s),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = nodeName,
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = nodeName,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = stringResource(R.string.node_action_links, linkCount),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            TextButton(
+                onClick = onLinks,
+                modifier = Modifier.heightIn(min = Sizes.touchMin),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.MyLocation,
+                    contentDescription = null,
+                    modifier = Modifier.size(Sizes.iconSm),
+                )
+                Spacer(Modifier.width(Spacing.xs))
+                Text(stringResource(R.string.link_action_links))
+            }
             TextButton(
                 onClick = onLink,
                 modifier = Modifier.heightIn(min = Sizes.touchMin),
@@ -1016,7 +1297,9 @@ private fun BoardNode(
     node: IdeaNode,
     selected: Boolean,
     board: BoardState,
+    hiddenBelow: Int,
     onTap: () -> Unit,
+    onOpenLinks: () -> Unit,
     onDragEnd: () -> Unit,
 ) {
     val linkCount = NodeStore.linksOf(node.id).size
@@ -1026,7 +1309,10 @@ private fun BoardNode(
             .offset { IntOffset(node.x.roundToInt(), node.y.roundToInt()) }
             .width(NODE_W.dp)
             .pointerInput(node.id) {
-                detectTapGestures(onTap = { onTap() })
+                detectTapGestures(
+                    onTap = { onTap() },
+                    onLongPress = { onOpenLinks() },
+                )
             }
             .pointerInput(node.id) {
                 detectDragGestures(
@@ -1054,20 +1340,32 @@ private fun BoardNode(
             containerColor = MaterialTheme.colorScheme.surfaceVariant,
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = if (selected) 4.dp else 0.dp),
-        border = if (selected) {
-            BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
-        } else {
-            null
+        border = when {
+            selected -> BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+            node.isRoot -> BorderStroke(2.dp, MaterialTheme.colorScheme.tertiary)
+            else -> null
         },
     ) {
         Column(modifier = Modifier.padding(Spacing.m)) {
-            Text(
-                text = node.name,
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (node.isRoot) {
+                    Icon(
+                        imageVector = Icons.Outlined.MyLocation,
+                        contentDescription = stringResource(R.string.node_central),
+                        tint = MaterialTheme.colorScheme.tertiary,
+                        modifier = Modifier.size(Sizes.iconSm),
+                    )
+                    Spacer(Modifier.width(Spacing.xs))
+                }
+                Text(
+                    text = node.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+            }
             Spacer(Modifier.height(Spacing.s))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 (1..5).forEach { level ->
@@ -1093,6 +1391,14 @@ private fun BoardNode(
                         color = MaterialTheme.colorScheme.primary,
                     )
                 }
+                if (hiddenBelow > 0) {
+                    Spacer(Modifier.width(Spacing.s))
+                    Text(
+                        text = stringResource(R.string.node_hidden_badge, hiddenBelow),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                }
             }
             if (node.description.isNotBlank()) {
                 Spacer(Modifier.height(Spacing.s))
@@ -1105,5 +1411,17 @@ private fun BoardNode(
                 )
             }
         }
+    }
+}
+
+/** Small wrapper so the minimap's canvas body reads as a plain DrawScope block. */
+@Composable
+private fun CanvasBox(content: DrawScope.() -> Unit) {
+    androidx.compose.foundation.Canvas(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(Spacing.s),
+    ) {
+        content()
     }
 }

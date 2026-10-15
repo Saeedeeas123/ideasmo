@@ -22,18 +22,39 @@ data class IdeaNode(
     val createdAt: Long,
     val x: Float,
     val y: Float,
+    /**
+     * A node the whole structure is organised around ("central node"). More than one is allowed:
+     * every central node starts its own tree. Toggleable at any time.
+     */
+    val isRoot: Boolean = false,
+    /**
+     * Collapsed: the node itself stays on the board, everything below it (its whole subtree)
+     * is hidden until it is expanded again. Nothing is deleted — the data stays intact.
+     */
+    val collapsed: Boolean = false,
 )
 
 /**
  * A typed, optionally directed relation between two nodes.
  * [type] is a key from [LinkCatalog]; [label] is the escape hatch for phrases the catalog
  * does not name. Several different links may exist between the same pair of nodes.
+ *
+ * [id] is what makes a link editable: a link is no longer identified by its content, so its
+ * type, phrase, colour and direction can all be changed in place.
  */
 data class NodeLink(
+    val id: String,
     val fromId: String,
     val toId: String,
     val type: String = LinkCatalog.DEFAULT_KEY,
     val label: String? = null,
+    /** Optional colour override. Null = use the colour role of [type]. */
+    val color: String? = null,
+    /**
+     * Position among the outgoing links of [fromId]. This is what "order the branches" means:
+     * sibling order is stored on the link, so it survives restarts and drives the auto-layout.
+     */
+    val order: Int = 0,
 ) {
     fun otherEnd(nodeId: String): String = if (fromId == nodeId) toId else fromId
 
@@ -43,14 +64,21 @@ data class NodeLink(
     /** Two links are the same when they join the same pair with the same phrase. */
     fun sameAs(other: NodeLink): Boolean =
         connects(other.fromId, other.toId) && type == other.type && label == other.label
+
+    /** The colour role actually used for drawing: the override, or the type's own role. */
+    fun colorRole(): LinkColor =
+        color?.let { key -> LinkColor.values().firstOrNull { it.name == key } }
+            ?: LinkCatalog.byKey(type).color
 }
 
-/** A link prepared for display: the sentence plus the name of the node at the other end. */
+/** A link prepared for display: the sentence, the other end's name and its direction. */
 data class LinkView(
     val link: NodeLink,
     val otherName: String,
     val sentence: String,
     val displayLabel: String,
+    /** True when the link leaves [nodeId], false when it arrives at it. */
+    val outgoing: Boolean,
 )
 
 /**
@@ -67,6 +95,11 @@ object NodeStore {
     const val KIND_KNOWLEDGE = "knowledge"
     const val KIND_NOTE = "note"
 
+    const val ORDER_MANUAL = "manual"
+    const val ORDER_NAME = "name"
+    const val ORDER_PRIORITY = "priority"
+    const val ORDER_CREATED = "created"
+
     private const val FILE_NAME = "nodes.json"
     private const val MIGRATION_COL_W = 240f
     private const val MIGRATION_ROW_H = 140f
@@ -82,10 +115,24 @@ object NodeStore {
 
     fun byId(id: String): IdeaNode? = items.firstOrNull { it.id == id }
 
+    fun nameOf(id: String): String = byId(id)?.name ?: "?"
+
+    fun linkById(id: String): NodeLink? = linkItems.firstOrNull { it.id == id }
+
     fun linksOf(nodeId: String): List<NodeLink> =
         linkItems.filter { it.fromId == nodeId || it.toId == nodeId }
 
-    /** Links of a node, ready to render as sentences. */
+    /** Links that leave a node — these are its "sub-links" / branches. */
+    fun linksOut(nodeId: String): List<NodeLink> =
+        linkItems.filter { it.fromId == nodeId }.sortedBy { it.order }
+
+    /** Links that arrive at a node from somewhere else. */
+    fun linksIn(nodeId: String): List<NodeLink> = linkItems.filter { it.toId == nodeId }
+
+    /**
+     * Links of a node, ready to render as sentences. Outgoing first (in their stored order),
+     * then incoming — the same order the node panel and the list view show.
+     */
     fun linkViews(nodeId: String): List<LinkView> {
         val node = byId(nodeId) ?: return emptyList()
         return linksOf(nodeId).mapNotNull { link ->
@@ -96,8 +143,9 @@ object NodeStore {
                 otherName = other.name,
                 sentence = LinkCatalog.sentence(type, node.name, other.name, link.label),
                 displayLabel = LinkCatalog.displayLabel(type, link.label),
+                outgoing = link.fromId == nodeId,
             )
-        }
+        }.sortedWith(compareBy({ if (it.outgoing) 0 else 1 }, { it.link.order }))
     }
 
     fun connectedNames(nodeId: String): List<String> =
@@ -105,6 +153,140 @@ object NodeStore {
 
     fun isLinked(a: String, b: String, type: String? = null): Boolean =
         linkItems.any { it.connects(a, b) && (type == null || it.type == type) }
+
+    // ---- structure ----------------------------------------------------------
+
+    /** The children of a node, in branch order: the targets of its outgoing links. */
+    fun childrenOf(nodeId: String): List<IdeaNode> = linksOut(nodeId)
+        .mapNotNull { byId(it.toId) }
+        .filter { it.id != nodeId }
+
+    /** Nodes the user marked as central. More than one is allowed. */
+    fun rootIds(kind: String? = null): List<String> =
+        items.filter { it.isRoot && (kind == null || it.kind == kind) }.map { it.id }
+
+    /** Every node under [nodeId] (not including it), following outgoing links, cycle-safe. */
+    fun subtreeOf(nodeId: String): List<String> {
+        val seen = LinkedHashSet<String>()
+        val queue = ArrayDeque<String>()
+        linksOut(nodeId).forEach { queue.add(it.toId) }
+        while (queue.isNotEmpty()) {
+            val next = queue.removeFirst()
+            if (next == nodeId || !seen.add(next)) continue
+            linksOut(next).forEach { queue.add(it.toId) }
+        }
+        return seen.toList()
+    }
+
+    /**
+     * Everything hidden right now: the subtrees of every collapsed node.
+     * Hidden means "not drawn", never "deleted" — expanding brings it straight back.
+     */
+    fun hiddenIds(): Set<String> {
+        val hidden = HashSet<String>()
+        items.filter { it.collapsed }.forEach { node -> hidden.addAll(subtreeOf(node.id)) }
+        return hidden
+    }
+
+    fun setRoot(context: Context, nodeId: String, isRoot: Boolean) {
+        val index = items.indexOfFirst { it.id == nodeId }
+        if (index < 0) return
+        items[index] = items[index].copy(isRoot = isRoot)
+        persist(context)
+        AppLog.i("Structure", "central node ${if (isRoot) "set" else "cleared"}: '${items[index].name}'")
+    }
+
+    fun setCollapsed(context: Context, nodeId: String, collapsed: Boolean) {
+        val index = items.indexOfFirst { it.id == nodeId }
+        if (index < 0) return
+        items[index] = items[index].copy(collapsed = collapsed)
+        persist(context)
+        AppLog.i(
+            "Structure",
+            "node '${items[index].name}' ${if (collapsed) "collapsed" else "expanded"} " +
+                "(subtree ${subtreeOf(nodeId).size} node(s))",
+        )
+    }
+
+    fun setCollapsedAll(context: Context, collapsed: Boolean) {
+        var changed = 0
+        for (i in items.indices) {
+            if (items[i].collapsed != collapsed) {
+                items[i] = items[i].copy(collapsed = collapsed)
+                changed++
+            }
+        }
+        persist(context)
+        AppLog.i("Structure", "${if (collapsed) "collapse" else "expand"} all: $changed node(s) changed")
+    }
+
+    /** Moves a node and everything under it by a board-space delta. */
+    fun moveSubtree(context: Context, nodeId: String, dx: Float, dy: Float) {
+        val ids = subtreeOf(nodeId) + nodeId
+        ids.forEach { id ->
+            val index = items.indexOfFirst { it.id == id }
+            if (index >= 0) {
+                items[index] = items[index].copy(x = items[index].x + dx, y = items[index].y + dy)
+            }
+        }
+        persist(context)
+        AppLog.i("Structure", "moved subtree of '$nodeId' by ($dx,$dy) — ${ids.size} node(s)")
+    }
+
+    /** Writes a whole set of computed positions at once (used by the auto-layout). */
+    fun applyPositions(context: Context, positions: Map<String, LayoutPoint>) {
+        var moved = 0
+        positions.forEach { (id, point) ->
+            val index = items.indexOfFirst { it.id == id }
+            if (index >= 0) {
+                items[index] = items[index].copy(x = point.x, y = point.y)
+                moved++
+            }
+        }
+        persist(context)
+        AppLog.i("Structure", "layout applied to $moved node(s)")
+    }
+
+    // ---- link ordering ------------------------------------------------------
+
+    /** Moves a link up or down among its siblings (the branches of the same parent). */
+    fun reorderLink(context: Context, linkId: String, delta: Int) {
+        val link = linkById(linkId) ?: return
+        val siblings = linksOut(link.fromId).toMutableList()
+        val index = siblings.indexOfFirst { it.id == linkId }
+        val target = index + delta
+        if (index < 0 || target < 0 || target >= siblings.size) {
+            AppLog.i("Structure", "reorder refused: already at the edge")
+            return
+        }
+        val moved = siblings.removeAt(index)
+        siblings.add(target, moved)
+        siblings.forEachIndexed { i, l -> replaceOrder(l.id, i) }
+        persist(context)
+        AppLog.i("Structure", "branch '${moved.id}' moved to position ${target + 1}/${siblings.size}")
+    }
+
+    /** Auto-order modes for a node's branches. */
+    fun autoOrder(context: Context, nodeId: String, mode: String) {
+        val siblings = linksOut(nodeId).toMutableList()
+        if (siblings.isEmpty()) return
+        val sorted = when (mode) {
+            ORDER_NAME -> siblings.sortedBy { nameOf(it.toId).lowercase() }
+            ORDER_PRIORITY -> siblings.sortedByDescending { byId(it.toId)?.priority ?: 0 }
+            ORDER_CREATED -> siblings.sortedBy { byId(it.toId)?.createdAt ?: 0L }
+            else -> siblings.sortedBy { it.order }
+        }
+        sorted.forEachIndexed { i, l -> replaceOrder(l.id, i) }
+        persist(context)
+        AppLog.i("Structure", "branch order of '$nodeId' set to $mode (${sorted.size} branch(es))")
+    }
+
+    private fun replaceOrder(linkId: String, order: Int) {
+        val index = linkItems.indexOfFirst { it.id == linkId }
+        if (index >= 0) linkItems[index] = linkItems[index].copy(order = order)
+    }
+
+    // ---- mutations ----------------------------------------------------------
 
     fun newId(): String = UUID.randomUUID().toString()
 
@@ -146,6 +328,8 @@ object NodeStore {
                         createdAt = o.optLong("createdAt"),
                         x = if (hasPosition) o.optDouble("x", 0.0).toFloat() else (i % 2) * MIGRATION_COL_W,
                         y = if (hasPosition) o.optDouble("y", 0.0).toFloat() else (i / 2) * MIGRATION_ROW_H,
+                        isRoot = o.optBoolean("isRoot", false),
+                        collapsed = o.optBoolean("collapsed", false),
                     ),
                 )
             }
@@ -154,13 +338,19 @@ object NodeStore {
             if (linksArray != null) {
                 for (i in 0 until linksArray.length()) {
                     val o = linksArray.getJSONObject(i)
+                    val existingId = if (o.has("id")) o.optString("id") else ""
                     loadedLinks.add(
                         NodeLink(
+                            // Links written before ids existed get one on load, so they become
+                            // editable without any other change.
+                            id = existingId.ifEmpty { UUID.randomUUID().toString() },
                             fromId = o.optString("from"),
                             toId = o.optString("to"),
                             // Links written before types existed become the neutral default.
                             type = if (o.has("type")) o.optString("type") else LinkCatalog.DEFAULT_KEY,
                             label = if (o.isNull("label")) null else o.optString("label"),
+                            color = if (o.has("color") && !o.isNull("color")) o.optString("color") else null,
+                            order = o.optInt("order", 0),
                         ),
                     )
                 }
@@ -172,13 +362,28 @@ object NodeStore {
             linkItems.addAll(
                 loadedLinks.filter { l -> loaded.any { it.id == l.fromId } && loaded.any { it.id == l.toId } },
             )
+            normalizeOrders()
             AppLog.i(
                 "NodeStore",
                 "loaded " + loaded.size + " node(s) / " + linkItems.size + " link(s) from " + file.absolutePath +
-                    " (migrated without position: " + migrated + ", legacyFormat: " + (linksArray == null) + ")",
+                    " (migrated without position: " + migrated + ", legacyFormat: " + (linksArray == null) +
+                    ", central: " + loaded.count { it.isRoot } + ", collapsed: " + loaded.count { it.collapsed } + ")",
             )
         } catch (t: Throwable) {
             AppLog.e("NodeStore", "load failed", t)
+        }
+    }
+
+    /** Guarantees one clean 0..n-1 branch order per parent, for files written by older versions. */
+    private fun normalizeOrders() {
+        linkItems.map { it.fromId }.distinct().forEach { parent ->
+            val siblings = linkItems.filter { it.fromId == parent }.sortedBy { it.order }
+            siblings.forEachIndexed { i, l ->
+                val index = linkItems.indexOfFirst { it.id == l.id }
+                if (index >= 0 && linkItems[index].order != i) {
+                    linkItems[index] = linkItems[index].copy(order = i)
+                }
+            }
         }
     }
 
@@ -214,22 +419,51 @@ object NodeStore {
     ): String {
         if (fromId == toId) return "self"
         if (byId(fromId) == null || byId(toId) == null) return "missing"
-        val candidate = NodeLink(fromId, toId, typeKey, label)
+        val candidate = NodeLink(
+            id = newId(),
+            fromId = fromId,
+            toId = toId,
+            type = typeKey,
+            label = label,
+            color = null,
+            order = linksOut(fromId).size,
+        )
         if (linkItems.any { it.sameAs(candidate) }) return "exists"
         linkItems.add(candidate)
         persist(context)
         AppLog.i(
             "NodeStore",
-            "link added: '" + (byId(fromId)?.name ?: fromId) + "' " +
+            "link added: '" + nameOf(fromId) + "' " +
                 LinkCatalog.displayLabel(LinkCatalog.byKey(typeKey), label) +
-                " '" + (byId(toId)?.name ?: toId) + "' total=" + linkItems.size,
+                " '" + nameOf(toId) + "' total=" + linkItems.size,
+        )
+        return "ok"
+    }
+
+    /**
+     * Edits an existing link in place: type, phrase, colour override or direction.
+     * Returns "ok", "missing" or "exists" (the edit would duplicate another link).
+     */
+    fun updateLink(context: Context, updated: NodeLink): String {
+        val index = linkItems.indexOfFirst { it.id == updated.id }
+        if (index < 0) return "missing"
+        val previous = linkItems[index]
+        if (linkItems.any { it.id != updated.id && it.sameAs(updated) }) return "exists"
+        linkItems[index] = updated
+        persist(context)
+        AppLog.i(
+            "Link",
+            "link edited: '" + nameOf(updated.fromId) + "' " +
+                LinkCatalog.displayLabel(LinkCatalog.byKey(updated.type), updated.label) +
+                " '" + nameOf(updated.toId) + "' (type " + previous.type + " -> " + updated.type +
+                ", color " + previous.color + " -> " + updated.color + ")",
         )
         return "ok"
     }
 
     /** Removes one link. Returns it, so the UI can offer Undo. */
     fun removeLink(context: Context, link: NodeLink): NodeLink? {
-        val index = linkItems.indexOfFirst { it.sameAs(link) }
+        val index = linkItems.indexOfFirst { it.id == link.id }
         if (index < 0) return null
         val removed = linkItems.removeAt(index)
         persist(context)
@@ -242,7 +476,7 @@ object NodeStore {
     }
 
     fun restoreLink(context: Context, link: NodeLink) {
-        if (linkItems.none { it.sameAs(link) }) {
+        if (linkItems.none { it.id == link.id }) {
             linkItems.add(link)
             persist(context)
             AppLog.i("NodeStore", "link restored: " + link.type)
@@ -269,7 +503,7 @@ object NodeStore {
     fun restore(context: Context, node: IdeaNode, links: List<NodeLink>) {
         if (byId(node.id) == null) items.add(node)
         links.forEach { l ->
-            if (byId(l.fromId) != null && byId(l.toId) != null && linkItems.none { it.sameAs(l) }) {
+            if (byId(l.fromId) != null && byId(l.toId) != null && linkItems.none { it.id == l.id }) {
                 linkItems.add(l)
             }
         }
@@ -291,15 +525,20 @@ object NodeStore {
                 o.put("createdAt", n.createdAt)
                 o.put("x", n.x.toDouble())
                 o.put("y", n.y.toDouble())
+                o.put("isRoot", n.isRoot)
+                o.put("collapsed", n.collapsed)
                 nodesArray.put(o)
             }
             val linksArray = JSONArray()
             linkItems.forEach { l ->
                 val o = JSONObject()
+                o.put("id", l.id)
                 o.put("from", l.fromId)
                 o.put("to", l.toId)
                 o.put("type", l.type)
                 o.put("label", l.label ?: JSONObject.NULL)
+                o.put("color", l.color ?: JSONObject.NULL)
+                o.put("order", l.order)
                 linksArray.put(o)
             }
             val root = JSONObject()

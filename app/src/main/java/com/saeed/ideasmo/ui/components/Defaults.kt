@@ -1,5 +1,6 @@
 package com.saeed.ideasmo.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -20,13 +21,16 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import com.saeed.ideasmo.ui.theme.Sizes
 import com.saeed.ideasmo.ui.theme.Spacing
 
@@ -236,6 +240,55 @@ fun NavRow(
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(Sizes.iconMd),
+            )
+        }
+    }
+}
+
+/**
+ * A selectable pill: one option out of a small set (a link colour, a layout direction, a spacing,
+ * a board theme). Selected state is shown by the container tone plus the primary border — never by
+ * colour alone, so it survives a colour-blind or low-contrast screen.
+ */
+@Composable
+fun ChoiceChip(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    leading: (@Composable () -> Unit)? = null,
+) {
+    Surface(
+        modifier = modifier
+            .heightIn(min = Sizes.touchMin)
+            .clip(CircleShape)
+            .clickable(onClick = onClick),
+        shape = CircleShape,
+        color = if (selected) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant
+        },
+        border = if (selected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = Spacing.l, vertical = Spacing.s),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (leading != null) {
+                leading()
+                Spacer(Modifier.width(Spacing.s))
+            }
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelLarge,
+                color = if (selected) {
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
