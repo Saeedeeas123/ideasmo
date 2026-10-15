@@ -58,6 +58,10 @@
 
     <!-- Idea node editor (wireframe 2, 2026-10-15) -->
     <string name="idea_title">Idea</string>
+    <string name="board_title">Board</string>
+    <string name="board_hint">Drag to move the board · pinch to zoom</string>
+    <string name="cd_reset_view">Reset view</string>
+    <string name="view_reset">View reset</string>
     <string name="new_node">new node</string>
     <string name="cd_new_node">Create a node</string>
     <string name="priority">Priority</string>

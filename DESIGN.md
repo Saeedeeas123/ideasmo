@@ -76,6 +76,38 @@ The sketch lays Priority and Node name side by side. On a 360dp phone that would
 so the form stacks them (Priority full width → Node name full width) and keeps the sketch's
 second row intact (Description | Pic). No information is lost; nothing is clipped.
 
+### 6.3 The Board (v0.3.0) — the shared foundation
+
+The node page is now a real **board**, as Saeed ordered: *"we need a full map you can travel
+through with touch, not a static page"*. Every module uses the same board, separated only by
+node kind (`idea` / `mindmap` / `knowledge` / `note`).
+
+**Interaction model**
+- **Pan:** one finger drag anywhere on the board.
+- **Zoom:** two-finger pinch, or the − / + toolbar buttons. Range **25 %–200 %**, 25 % steps.
+  Both zoom paths keep the point under the finger / viewport centre fixed.
+- **Drag a node:** press and drag the node itself. Node drag and board pan never fight — while a
+  node is being dragged the board ignores pan.
+- **Select:** tap a node (primary border + elevation). Tap empty board to deselect.
+- **Reset view:** tap the zoom percentage label → back to 100 % with the content centred.
+- **Create:** "new node" — centred label + circle when the board is empty (exactly as drawn), and a
+  compact pill above the toolbar once nodes exist, so it never covers the board. New nodes land in
+  the centre of what you are currently looking at.
+
+**Coordinates:** nodes store `x` / `y` in **board units** (= dp at 100 % zoom), never screen pixels,
+so layout survives panning, zooming and screen changes. Dragging divides the gesture delta by the
+current scale, so a node tracks the finger at every zoom level.
+
+**Persistence:** positions are saved once per drag *end* (not per frame), so a drag never hammers
+the disk. Nodes written before the board existed (no `x` / `y`) are migrated onto a grid on load.
+
+**Grid:** drawn in viewport space — only the visible lines are generated, with a heavier line every
+500 units. It is what makes panning legible on an empty board.
+
+**Deviation from v0.2.0:** the node form moved from *inside* the board to a fixed bottom panel with
+keyboard insets. Inline was correct when the page could not move; on a pannable board a form that
+drifts away under your finger would be unusable.
+
 ## 7. Assets
 
 - **Icons:** `material-icons-extended` 1.7.2 (local, no download). Outlined for chrome.
@@ -117,7 +149,8 @@ no dependency where a Compose `Canvas` would do.
 
 ## 11. Sign-off
 
-- Implemented: 2026-10-15
-- Verified how: build + install by Saeed (device loop). Paparazzi screenshot module not yet set up.
-- Rounds of self-critique: 1 (structure/token pass against the checklist above).
-- Open visual issues: none known; first real judgement belongs to Saeed on the device.
+- Implemented: 2026-10-15 — **v0.1.0** (home screen) and **v0.2.0** (Project + Idea core)
+- Verified how: build + install by Saeed (device loop). Paparazzi screenshot module still not set up.
+- Rounds of self-critique: 1 per version (structure/token pass against the checklist above).
+- Saeed's verdict on v0.1.0 (2026-10-15): everything works, the design improved a lot, accepted.
+- Open visual issues: none known; first judgement of the new screens belongs to Saeed on the device.

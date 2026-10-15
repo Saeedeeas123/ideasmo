@@ -26,7 +26,7 @@ import com.saeed.ideasmo.core.prefs.ThemePrefs
 import com.saeed.ideasmo.ui.home.HomeEntry
 import com.saeed.ideasmo.ui.home.HomeScreen
 import com.saeed.ideasmo.ui.home.RecentItem
-import com.saeed.ideasmo.ui.idea.IdeaScreen
+import com.saeed.ideasmo.ui.board.BoardScreen
 import com.saeed.ideasmo.ui.project.ProjectEntry
 import com.saeed.ideasmo.ui.project.ProjectScreen
 import com.saeed.ideasmo.ui.theme.IdeasmoTheme
@@ -78,7 +78,7 @@ class MainActivity : ComponentActivity() {
 private sealed interface Screen {
     data object Home : Screen
     data object Project : Screen
-    data object Idea : Screen
+    data object Board : Screen
     data object Logs : Screen
 }
 
@@ -155,13 +155,14 @@ private fun IdeasmoApp() {
                 onEntry = { entry ->
                     AppLog.i("UI", "project entry tapped: " + entry.name)
                     when (entry) {
-                        ProjectEntry.Idea -> push(Screen.Idea)
+                        ProjectEntry.Idea -> push(Screen.Board)
                         else -> notBuilt(context.getString(entry.labelRes))
                     }
                 },
             )
 
-            Screen.Idea -> IdeaScreen(
+            Screen.Board -> BoardScreen(
+                kind = NodeStore.KIND_IDEA,
                 snackbarHostState = snackbarHostState,
                 isDark = isDark,
                 onToggleTheme = toggleTheme,

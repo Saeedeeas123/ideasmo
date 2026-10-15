@@ -109,6 +109,7 @@ fun ToolButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    active: Boolean = false,
 ) {
     IconButton(
         onClick = onClick,
@@ -118,10 +119,10 @@ fun ToolButton(
         Icon(
             imageVector = icon,
             contentDescription = contentDescription,
-            tint = if (enabled) {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            } else {
-                MaterialTheme.colorScheme.outline
+            tint = when {
+                !enabled -> MaterialTheme.colorScheme.outline
+                active -> MaterialTheme.colorScheme.primary
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
             },
             modifier = Modifier.size(Sizes.iconMd),
         )
