@@ -108,6 +108,38 @@ the disk. Nodes written before the board existed (no `x` / `y`) are migrated ont
 keyboard insets. Inline was correct when the page could not move; on a pannable board a form that
 drifts away under your finger would be unusable.
 
+### 6.4 Relations, the travelling minimap and the list view (v0.4.0)
+
+**Simple relations.** Two nodes can be connected; the connection is drawn as a line between their
+centres, behind the cards, with the width following the zoom.
+- **Creating one:** tap a node → the node action bar appears → **Connect** → tap the target node.
+  A hint bar replaces the action bar during the wait, with Cancel. Self-links and duplicates are
+  refused with an explicit message, never silently.
+- **Data:** `NodeLink(fromId, toId)` — undirected, deduplicated both ways. Stored in the same
+  `nodes.json` as `{"nodes":[…],"links":[…]}`; files written by older versions (a bare node array)
+  are migrated on load, so no data is lost.
+- **Where it shows:** the board (as lines), the **list view** ("Linked to: X, Y"), and the node card
+  shows a small count of its connections.
+
+**Node actions** (appear when a node is selected, above the toolbar): the node's name, **Connect**,
+and **Delete**. Delete removes the node *and* its links, and offers **Undo** in the snackbar
+(a destructive action always gets a way back).
+
+**List view.** The list button is now real: it switches the board area to a list of the same nodes,
+each row showing name, priority, description and its connections. The zoom controls disable in list
+view (they mean nothing there) and the empty state points back to the board.
+
+**The travelling minimap.** As Saeed specified: it is **not always on screen**. It appears the moment
+you touch the board and start travelling, lingers ~900 ms after you let go, then disappears.
+- Shows: every node (as blocks), the connections, the **current viewport** as an outlined rectangle,
+  and **your finger as a red dot** — drawn with the `error` role so it stays a semantic colour rather
+  than a hardcoded hex.
+- The visible world is the union of the viewport and all nodes, plus 12 % padding, so it always
+  frames both "where I am" and "where my stuff is".
+- Size 200 × 140 dp, top-end corner, out of the way of the toolbar and of the hand.
+- Honest note: it is driven by *any* touch on the board, so it also appears briefly while dragging a
+  node. That is harmless and arguably informative, and it keeps the gesture tracking simple.
+
 ## 7. Assets
 
 - **Icons:** `material-icons-extended` 1.7.2 (local, no download). Outlined for chrome.

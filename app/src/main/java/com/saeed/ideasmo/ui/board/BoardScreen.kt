@@ -4,9 +4,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -19,15 +21,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.FormatListBulleted
@@ -43,10 +42,10 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -64,13 +63,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -80,16 +80,17 @@ import androidx.compose.ui.unit.dp
 import com.saeed.ideasmo.R
 import com.saeed.ideasmo.core.log.AppLog
 import com.saeed.ideasmo.core.model.IdeaNode
+import com.saeed.ideasmo.core.model.NodeLink
 import com.saeed.ideasmo.core.model.NodeStore
 import com.saeed.ideasmo.core.util.copyPictureIntoAppStorage
-import com.saeed.ideasmo.core.util.decodeThumbnail
-import com.saeed.ideasmo.ui.components.PrimaryAction
 import com.saeed.ideasmo.ui.components.ToolButton
 import com.saeed.ideasmo.ui.theme.Radius
 import com.saeed.ideasmo.ui.theme.Sizes
 import com.saeed.ideasmo.ui.theme.Spacing
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.floor
+import kotlin.math.max
 import kotlin.math.roundToInt
 
 private const val MIN_SCALE = 0.25f
@@ -98,14 +99,19 @@ private const val ZOOM_STEP = 0.25f
 private const val NODE_W = 200f
 private const val NODE_H_EST = 96f
 private const val GRID_STEP = 100f
-private const val PIC_BOX = 112
+private const val MINIMAP_LINGER_MS = 900L
+private const val MINIMAP_W = 200
+private const val MINIMAP_H = 140
+
+private enum class ViewMode { Board, List }
 
 /**
- * The board: an infinite-feeling 2D surface you pan with one finger and pinch to zoom,
- * exactly like a mind-map canvas. Nodes live in board coordinates and can be dragged.
+ * The board: a 2D surface you pan with one finger and pinch to zoom, with nodes you can drag
+ * and simple connections between them. Shared by every module (Idea, Mindmap, Knowledge, Note)
+ * — separated only by [kind].
  *
- * This is the shared foundation — every module (Idea, Mindmap, Knowledge, Note) uses the
- * same board, separated only by [kind].
+ * A minimap appears while you travel (touch / drag) and shows where you are on the board,
+ * the surrounding nodes, and your finger as a red dot. It is deliberately not always visible.
  */
 private class BoardState {
     var scale by mutableStateOf(1f)
@@ -116,6 +122,14 @@ private class BoardState {
 
     /** True while a node is being dragged, so the board itself does not pan at the same time. */
     var draggingNode by mutableStateOf(false)
+
+    /** True while a finger is down on the board — this is what summons the minimap. */
+    var gestureActive by mutableStateOf(false)
+    var gestureEndedAt by mutableStateOf(0L)
+
+    /** Last touch position, in viewport pixels. */
+    var touchX by mutableStateOf(0f)
+    var touchY by mutableStateOf(0f)
 
     fun setScaleAround(target: Float, cx: Float, cy: Float) {
         val next = target.coerceIn(MIN_SCALE, MAX_SCALE)
@@ -134,6 +148,10 @@ private class BoardState {
     fun screenToWorldX(sx: Float): Float = (sx - offsetX) / scale
 
     fun screenToWorldY(sy: Float): Float = (sy - offsetY) / scale
+
+    fun worldToScreenX(wx: Float): Float = wx * scale + offsetX
+
+    fun worldToScreenY(wy: Float): Float = wy * scale + offsetY
 
     /** 100% zoom, with the content (or the origin, when empty) centred in the viewport. */
     fun resetView(nodes: List<IdeaNode>) {
@@ -168,14 +186,28 @@ fun BoardScreen(
     val board = remember { BoardState() }
 
     val nodes = NodeStore.nodesOf(kind)
+    val links = NodeStore.links
 
+    var viewMode by remember { mutableStateOf(ViewMode.Board) }
     var formOpen by remember { mutableStateOf(false) }
     var nodeName by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     var priority by remember { mutableStateOf(3) }
     var picPath by remember { mutableStateOf<String?>(null) }
     var selectedId by remember { mutableStateOf<String?>(null) }
+    var connectFrom by remember { mutableStateOf<String?>(null) }
+    var minimapVisible by remember { mutableStateOf(false) }
     var centeredOnce by remember { mutableStateOf(false) }
+
+    // The minimap is summoned by touching the board and lingers briefly after release.
+    LaunchedEffect(board.gestureActive, board.gestureEndedAt) {
+        if (board.gestureActive) {
+            minimapVisible = true
+        } else if (board.gestureEndedAt > 0L) {
+            delay(MINIMAP_LINGER_MS)
+            minimapVisible = false
+        }
+    }
 
     // Put the origin in the middle of the viewport on first layout.
     LaunchedEffect(board.viewportW, board.viewportH) {
@@ -205,7 +237,6 @@ fun BoardScreen(
             AppLog.w("Board", "create blocked: empty node name")
             scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.node_name_required)) }
         } else {
-            // Place the new node where the user is currently looking.
             val wx = board.screenToWorldX(board.viewportW / 2f) - NODE_W / 2f
             val wy = board.screenToWorldY(board.viewportH / 2f) - NODE_H_EST / 2f
             NodeStore.add(
@@ -231,9 +262,36 @@ fun BoardScreen(
         }
     }
 
-    val notBuilt: (String) -> Unit = { label ->
-        AppLog.i("Board", "toolbar tapped: " + label + " (not built)")
-        scope.launch { snackbarHostState.showSnackbar(label) }
+    // Tap on a node: complete a pending connection, otherwise select it.
+    val onNodeTap: (IdeaNode) -> Unit = { node ->
+        val from = connectFrom
+        if (from != null) {
+            connectFrom = null
+            when (NodeStore.addLink(context, from, node.id)) {
+                "ok" -> {
+                    val fromName = NodeStore.byId(from)?.name ?: "?"
+                    AppLog.i("Board", "linked '" + fromName + "' to '" + node.name + "'")
+                    scope.launch {
+                        snackbarHostState.showSnackbar(
+                            context.getString(R.string.connected_ok, fromName, node.name),
+                        )
+                    }
+                }
+
+                "exists" -> {
+                    AppLog.i("Board", "link skipped: already connected")
+                    scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.link_exists)) }
+                }
+
+                else -> {
+                    AppLog.w("Board", "link rejected: " + node.id)
+                    scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.link_self)) }
+                }
+            }
+        } else {
+            selectedId = node.id
+            AppLog.i("Board", "node selected: " + node.name)
+        }
     }
 
     Scaffold(
@@ -270,111 +328,214 @@ fun BoardScreen(
                 .fillMaxSize()
                 .padding(inner),
         ) {
-            val gridMinor = MaterialTheme.colorScheme.outline.copy(alpha = 0.20f)
-            val gridMajor = MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
+            if (viewMode == ViewMode.List) {
+                BoardListView(
+                    nodes = nodes,
+                    selectedId = selectedId,
+                    onSelect = onNodeTap,
+                    onGoToBoard = { viewMode = ViewMode.Board },
+                    modifier = Modifier.weight(1f),
+                )
+            } else {
+                val gridMinor = MaterialTheme.colorScheme.outline.copy(alpha = 0.20f)
+                val gridMajor = MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
+                val linkColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
 
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .clipToBounds()
-                    .onSizeChanged {
-                        board.viewportW = it.width.toFloat()
-                        board.viewportH = it.height.toFloat()
-                    }
-                    .drawBehind { drawBoardGrid(board, gridMinor, gridMajor) }
-                    .pointerInput(kind) {
-                        detectTransformGestures { centroid, pan, zoom, _ ->
-                            if (!board.draggingNode) {
-                                if (zoom != 1f) {
-                                    board.setScaleAround(board.scale * zoom, centroid.x, centroid.y)
-                                }
-                                if (pan != Offset.Zero) {
-                                    board.panBy(pan.x, pan.y)
-                                }
-                            }
-                        }
-                    }
-                    .pointerInput(kind) {
-                        detectTapGestures { selectedId = null }
-                    },
-            ) {
-                // Transformed board content
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer(
-                            scaleX = board.scale,
-                            scaleY = board.scale,
-                            translationX = board.offsetX,
-                            translationY = board.offsetY,
-                            transformOrigin = TransformOrigin(0f, 0f),
-                            clip = false,
-                        ),
-                ) {
-                    nodes.forEach { node ->
-                        BoardNode(
-                            node = node,
-                            selected = node.id == selectedId,
-                            board = board,
-                            onTap = {
-                                selectedId = node.id
-                                AppLog.i("Board", "node selected: " + node.name)
-                            },
-                            onDragEnd = { NodeStore.persist(context) },
+                // Edge endpoints in screen space, computed once per frame for the current transform.
+                val edgeEnds = links.mapNotNull { link ->
+                    val a = NodeStore.byId(link.fromId)
+                    val b = NodeStore.byId(link.toId)
+                    if (a == null || b == null) {
+                        null
+                    } else {
+                        Offset(
+                            board.worldToScreenX(a.x + NODE_W / 2f),
+                            board.worldToScreenY(a.y + NODE_H_EST / 2f),
+                        ) to Offset(
+                            board.worldToScreenX(b.x + NODE_W / 2f),
+                            board.worldToScreenY(b.y + NODE_H_EST / 2f),
                         )
                     }
                 }
 
-                // Fixed overlays (they must not move with the board)
-                if (formOpen) {
-                    NodeFormPanel(
-                        modifier = Modifier.align(Alignment.BottomCenter),
-                        name = nodeName,
-                        onNameChange = { nodeName = it },
-                        priority = priority,
-                        onPriorityChange = { priority = it },
-                        description = description,
-                        onDescriptionChange = { description = it },
-                        picPath = picPath,
-                        onPickImage = {
-                            AppLog.i("Board", "picture picker launched")
-                            pickImage.launch(
-                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                            )
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .clipToBounds()
+                        .onSizeChanged {
+                            board.viewportW = it.width.toFloat()
+                            board.viewportH = it.height.toFloat()
+                        }
+                        .drawBehind {
+                            drawBoardGrid(board, gridMinor, gridMajor)
+                            drawLinks(edgeEnds, linkColor, board.scale)
+                        }
+                        .pointerInput(kind) {
+                            detectTransformGestures { centroid, pan, zoom, _ ->
+                                if (!board.draggingNode) {
+                                    if (zoom != 1f) {
+                                        board.setScaleAround(board.scale * zoom, centroid.x, centroid.y)
+                                    }
+                                    if (pan != Offset.Zero) {
+                                        board.panBy(pan.x, pan.y)
+                                    }
+                                }
+                            }
+                        }
+                        .pointerInput(kind) {
+                            detectTapGestures { selectedId = null }
+                        }
+                        .pointerInput(kind) {
+                            // Tracks any touch on the board purely to drive the minimap.
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                board.gestureActive = true
+                                board.touchX = down.position.x
+                                board.touchY = down.position.y
+                                var pressed = true
+                                while (pressed) {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull()
+                                    if (change != null) {
+                                        board.touchX = change.position.x
+                                        board.touchY = change.position.y
+                                    }
+                                    pressed = event.changes.any { it.pressed }
+                                }
+                                board.gestureActive = false
+                                board.gestureEndedAt = System.currentTimeMillis()
+                            }
                         },
-                        onAi = {
-                            AppLog.i("Board", "Ai button tapped (not built)")
-                            scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.ai_not_built)) }
-                        },
-                        onCancel = {
-                            AppLog.i("Board", "node form cancelled")
-                            formOpen = false
-                        },
-                        onCreate = createNode,
-                    )
-                } else if (nodes.isEmpty()) {
-                    NewNodeCentre(
-                        modifier = Modifier.align(Alignment.Center),
-                        onClick = {
-                            formOpen = true
-                            AppLog.i("Board", "new node tapped (empty board)")
-                        },
-                    )
-                } else {
-                    NewNodePill(
+                ) {
+                    // Transformed board content
+                    Box(
                         modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = Spacing.l),
-                        onClick = {
-                            formOpen = true
-                            AppLog.i("Board", "new node tapped (pill)")
+                            .fillMaxSize()
+                            .graphicsLayer(
+                                scaleX = board.scale,
+                                scaleY = board.scale,
+                                translationX = board.offsetX,
+                                translationY = board.offsetY,
+                                transformOrigin = TransformOrigin(0f, 0f),
+                                clip = false,
+                            ),
+                    ) {
+                        nodes.forEach { node ->
+                            BoardNode(
+                                node = node,
+                                selected = node.id == selectedId,
+                                board = board,
+                                onTap = { onNodeTap(node) },
+                                onDragEnd = { NodeStore.persist(context) },
+                            )
+                        }
+                    }
+
+                    // Minimap — only while travelling
+                    if (minimapVisible) {
+                        MiniMap(
+                            nodes = nodes,
+                            links = links,
+                            board = board,
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(Spacing.l)
+                                .size(width = MINIMAP_W.dp, height = MINIMAP_H.dp),
+                        )
+                    }
+
+                    // Fixed overlays
+                    if (formOpen) {
+                        NodeFormPanel(
+                            modifier = Modifier.align(Alignment.BottomCenter),
+                            name = nodeName,
+                            onNameChange = { nodeName = it },
+                            priority = priority,
+                            onPriorityChange = { priority = it },
+                            description = description,
+                            onDescriptionChange = { description = it },
+                            picPath = picPath,
+                            onPickImage = {
+                                AppLog.i("Board", "picture picker launched")
+                                pickImage.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                                )
+                            },
+                            onAi = {
+                                AppLog.i("Board", "Ai button tapped (not built)")
+                                scope.launch {
+                                    snackbarHostState.showSnackbar(context.getString(R.string.ai_not_built))
+                                }
+                            },
+                            onCancel = {
+                                AppLog.i("Board", "node form cancelled")
+                                formOpen = false
+                            },
+                            onCreate = createNode,
+                        )
+                    } else if (nodes.isEmpty()) {
+                        NewNodeCentre(
+                            modifier = Modifier.align(Alignment.Center),
+                            onClick = {
+                                formOpen = true
+                                AppLog.i("Board", "new node tapped (empty board)")
+                            },
+                        )
+                    } else {
+                        NewNodePill(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(bottom = Spacing.l),
+                            onClick = {
+                                formOpen = true
+                                AppLog.i("Board", "new node tapped (pill)")
+                            },
+                        )
+                    }
+                }
+            }
+
+            // Node actions (selected node) or the connect hint
+            val selectedNode = selectedId?.let { NodeStore.byId(it) }
+            if (!formOpen) {
+                if (connectFrom != null) {
+                    ConnectHintBar(onCancel = {
+                        connectFrom = null
+                        AppLog.i("Board", "connection cancelled")
+                        scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.connect_cancelled)) }
+                    })
+                } else if (selectedNode != null) {
+                    NodeActionBar(
+                        nodeName = selectedNode.name,
+                        onConnect = {
+                            connectFrom = selectedNode.id
+                            selectedId = null
+                            AppLog.i("Board", "connect started from '" + selectedNode.name + "'")
+                            scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.connect_hint)) }
+                        },
+                        onDelete = {
+                            val removed = NodeStore.remove(context, selectedNode.id)
+                            selectedId = null
+                            if (removed != null) {
+                                scope.launch {
+                                    val result = snackbarHostState.showSnackbar(
+                                        message = context.getString(R.string.node_deleted),
+                                        actionLabel = context.getString(R.string.undo),
+                                        withDismissAction = true,
+                                    )
+                                    if (result == SnackbarResult.ActionPerformed) {
+                                        NodeStore.restore(context, removed.first, removed.second)
+                                        AppLog.i("Board", "delete undone: " + removed.first.name)
+                                    }
+                                }
+                            }
                         },
                     )
                 }
             }
 
-            // Bottom toolbar: graph (current view) · zoom · list
+            // Bottom toolbar: board / list · zoom
             Surface(
                 color = MaterialTheme.colorScheme.surfaceVariant,
                 modifier = Modifier.fillMaxWidth(),
@@ -390,15 +551,19 @@ fun BoardScreen(
                     ToolButton(
                         icon = Icons.Outlined.AccountTree,
                         contentDescription = stringResource(R.string.tool_graph),
-                        active = true,
-                        onClick = { notBuilt(context.getString(R.string.graph_not_built)) },
+                        active = viewMode == ViewMode.Board,
+                        onClick = {
+                            viewMode = ViewMode.Board
+                            AppLog.i("Board", "view: board")
+                        },
                     )
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        val onBoard = viewMode == ViewMode.Board
                         ToolButton(
                             icon = Icons.Outlined.Remove,
                             contentDescription = stringResource(R.string.cd_zoom_out),
-                            enabled = board.scale > MIN_SCALE,
+                            enabled = onBoard && board.scale > MIN_SCALE,
                             onClick = {
                                 board.setScaleAround(
                                     board.scale - ZOOM_STEP,
@@ -414,17 +579,19 @@ fun BoardScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier
                                 .clip(RoundedCornerShape(Radius.small))
-                                .clickable {
+                                .clickable(enabled = onBoard) {
                                     board.resetView(NodeStore.nodesOf(kind))
                                     AppLog.i("Board", "view reset by tapping the zoom label")
-                                    scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.view_reset)) }
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar(context.getString(R.string.view_reset))
+                                    }
                                 }
                                 .padding(horizontal = Spacing.m, vertical = Spacing.s),
                         )
                         ToolButton(
                             icon = Icons.Outlined.Add,
                             contentDescription = stringResource(R.string.cd_zoom_in),
-                            enabled = board.scale < MAX_SCALE,
+                            enabled = onBoard && board.scale < MAX_SCALE,
                             onClick = {
                                 board.setScaleAround(
                                     board.scale + ZOOM_STEP,
@@ -439,7 +606,11 @@ fun BoardScreen(
                     ToolButton(
                         icon = Icons.AutoMirrored.Outlined.FormatListBulleted,
                         contentDescription = stringResource(R.string.tool_list),
-                        onClick = { notBuilt(context.getString(R.string.list_not_built)) },
+                        active = viewMode == ViewMode.List,
+                        onClick = {
+                            viewMode = ViewMode.List
+                            AppLog.i("Board", "view: list")
+                        },
                     )
                 }
             }
@@ -483,6 +654,182 @@ private fun DrawScope.drawBoardGrid(board: BoardState, minor: Color, major: Colo
             strokeWidth = if (isMajor) 1.5f else 1f,
         )
         wy += GRID_STEP
+    }
+}
+
+/** Draws the connections between nodes, behind the node cards. */
+private fun DrawScope.drawLinks(edges: List<Pair<Offset, Offset>>, color: Color, scale: Float) {
+    val width = max(1.5f, 2f * scale)
+    edges.forEach { (a, b) ->
+        drawLine(
+            color = color,
+            start = a,
+            end = b,
+            strokeWidth = width,
+            cap = StrokeCap.Round,
+        )
+    }
+}
+
+/**
+ * The travelling minimap: a window that appears while you move around the board.
+ * Shows every node, the connections, the current viewport, and your finger as a red dot.
+ */
+@Composable
+private fun MiniMap(
+    nodes: List<IdeaNode>,
+    links: List<NodeLink>,
+    board: BoardState,
+    modifier: Modifier = Modifier,
+) {
+    val viewLeft = board.screenToWorldX(0f)
+    val viewTop = board.screenToWorldY(0f)
+    val viewRight = board.screenToWorldX(board.viewportW)
+    val viewBottom = board.screenToWorldY(board.viewportH)
+    val touchWorldX = board.screenToWorldX(board.touchX)
+    val touchWorldY = board.screenToWorldY(board.touchY)
+
+    var minX = viewLeft
+    var maxX = viewRight
+    var minY = viewTop
+    var maxY = viewBottom
+    nodes.forEach { n ->
+        if (n.x < minX) minX = n.x
+        if (n.x + NODE_W > maxX) maxX = n.x + NODE_W
+        if (n.y < minY) minY = n.y
+        if (n.y + NODE_H_EST > maxY) maxY = n.y + NODE_H_EST
+    }
+    val padX = (maxX - minX) * 0.12f + 40f
+    val padY = (maxY - minY) * 0.12f + 40f
+    minX -= padX
+    maxX += padX
+    minY -= padY
+    maxY += padY
+    val worldW = (maxX - minX).coerceAtLeast(1f)
+    val worldH = (maxY - minY).coerceAtLeast(1f)
+
+    val nodeColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val linkColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+    val viewColor = MaterialTheme.colorScheme.primary
+    val touchColor = MaterialTheme.colorScheme.error
+    val borderColor = MaterialTheme.colorScheme.outline
+
+    Surface(
+        modifier = modifier,
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(Radius.medium),
+        border = BorderStroke(1.dp, borderColor),
+        tonalElevation = 3.dp,
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize().padding(Spacing.s)) {
+            val sx = size.width / worldW
+            val sy = size.height / worldH
+
+            links.forEach { link ->
+                val a = NodeStore.byId(link.fromId) ?: return@forEach
+                val b = NodeStore.byId(link.toId) ?: return@forEach
+                drawLine(
+                    color = linkColor,
+                    start = Offset((a.x + NODE_W / 2f - minX) * sx, (a.y + NODE_H_EST / 2f - minY) * sy),
+                    end = Offset((b.x + NODE_W / 2f - minX) * sx, (b.y + NODE_H_EST / 2f - minY) * sy),
+                    strokeWidth = 1.5f,
+                )
+            }
+
+            nodes.forEach { n ->
+                drawRect(
+                    color = nodeColor,
+                    topLeft = Offset((n.x - minX) * sx, (n.y - minY) * sy),
+                    size = Size(NODE_W * sx, NODE_H_EST * sy),
+                )
+            }
+
+            drawRect(
+                color = viewColor,
+                topLeft = Offset((viewLeft - minX) * sx, (viewTop - minY) * sy),
+                size = Size((viewRight - viewLeft) * sx, (viewBottom - viewTop) * sy),
+                style = Stroke(width = 2f),
+            )
+
+            drawCircle(
+                color = touchColor,
+                radius = 5f,
+                center = Offset((touchWorldX - minX) * sx, (touchWorldY - minY) * sy),
+            )
+        }
+    }
+}
+
+@Composable
+private fun NodeActionBar(
+    nodeName: String,
+    onConnect: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Spacing.l, vertical = Spacing.s),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = nodeName,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(
+                onClick = onConnect,
+                modifier = Modifier.heightIn(min = Sizes.touchMin),
+            ) {
+                Text(stringResource(R.string.cd_connect))
+            }
+            TextButton(
+                onClick = onDelete,
+                modifier = Modifier.heightIn(min = Sizes.touchMin),
+            ) {
+                Text(
+                    text = stringResource(R.string.delete_node),
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConnectHintBar(onCancel: () -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.primaryContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Spacing.l, vertical = Spacing.s),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = stringResource(R.string.connect_hint),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(
+                onClick = onCancel,
+                modifier = Modifier.heightIn(min = Sizes.touchMin),
+            ) {
+                Text(stringResource(R.string.cancel))
+            }
+        }
     }
 }
 
@@ -546,8 +893,7 @@ private fun BoardNode(
     onTap: () -> Unit,
     onDragEnd: () -> Unit,
 ) {
-    val context = LocalContext.current
-    val bitmap = remember(node.picUri) { node.picUri?.let { decodeThumbnail(context, it) } }
+    val linkedCount = NodeStore.linksOf(node.id).size
 
     Card(
         modifier = Modifier
@@ -598,31 +944,27 @@ private fun BoardNode(
             )
             Spacer(Modifier.height(Spacing.s))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Row(modifier = Modifier.weight(1f)) {
-                    (1..5).forEach { level ->
-                        Box(
-                            modifier = Modifier
-                                .padding(end = Spacing.xs)
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    if (level <= node.priority) {
-                                        MaterialTheme.colorScheme.primary
-                                    } else {
-                                        MaterialTheme.colorScheme.outline
-                                    },
-                                ),
-                        )
-                    }
-                }
-                if (bitmap != null) {
-                    Image(
-                        bitmap = bitmap.asImageBitmap(),
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
+                (1..5).forEach { level ->
+                    Box(
                         modifier = Modifier
-                            .size(40.dp)
-                            .clip(RoundedCornerShape(Radius.small)),
+                            .padding(end = Spacing.xs)
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (level <= node.priority) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.outline
+                                },
+                            ),
+                    )
+                }
+                Spacer(Modifier.width(Spacing.s))
+                if (linkedCount > 0) {
+                    Text(
+                        text = linkedCount.toString(),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
                     )
                 }
             }
@@ -636,170 +978,6 @@ private fun BoardNode(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun NodeFormPanel(
-    modifier: Modifier = Modifier,
-    name: String,
-    onNameChange: (String) -> Unit,
-    priority: Int,
-    onPriorityChange: (Int) -> Unit,
-    description: String,
-    onDescriptionChange: (String) -> Unit,
-    picPath: String?,
-    onPickImage: () -> Unit,
-    onAi: () -> Unit,
-    onCancel: () -> Unit,
-    onCreate: () -> Unit,
-) {
-    Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .imePadding(),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        shape = RoundedCornerShape(topStart = Radius.large, topEnd = Radius.large),
-        tonalElevation = 3.dp,
-    ) {
-        Column(
-            modifier = Modifier
-                .heightIn(max = 460.dp)
-                .verticalScroll(rememberScrollState())
-                .padding(Spacing.l),
-        ) {
-            Text(
-                text = stringResource(R.string.priority),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(Spacing.xs))
-            Row {
-                (1..5).forEach { level ->
-                    Box(
-                        modifier = Modifier
-                            .size(Sizes.touchMin)
-                            .clip(CircleShape)
-                            .clickable {
-                                onPriorityChange(level)
-                                AppLog.i("Board", "priority set to " + level)
-                            },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(20.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    if (level <= priority) {
-                                        MaterialTheme.colorScheme.primary
-                                    } else {
-                                        MaterialTheme.colorScheme.surface
-                                    },
-                                ),
-                        )
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(Spacing.m))
-
-            OutlinedTextField(
-                value = name,
-                onValueChange = onNameChange,
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                shape = RoundedCornerShape(Radius.medium),
-                label = { Text(stringResource(R.string.node_name)) },
-            )
-
-            Spacer(Modifier.height(Spacing.l))
-
-            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.m)) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Text(
-                            text = stringResource(R.string.description),
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        FilledTonalButton(
-                            onClick = onAi,
-                            modifier = Modifier.heightIn(min = Sizes.touchMin),
-                        ) {
-                            Text(stringResource(R.string.ai_assist))
-                        }
-                    }
-                    OutlinedTextField(
-                        value = description,
-                        onValueChange = onDescriptionChange,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 96.dp),
-                        shape = RoundedCornerShape(Radius.medium),
-                    )
-                }
-
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = stringResource(R.string.pic),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(Spacing.xs))
-                    PicBox(picPath = picPath, onPick = onPickImage)
-                }
-            }
-
-            Spacer(Modifier.height(Spacing.l))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.End,
-            ) {
-                TextButton(onClick = onCancel) {
-                    Text(stringResource(R.string.cancel))
-                }
-                Spacer(Modifier.width(Spacing.s))
-                PrimaryAction(text = stringResource(R.string.create_node), onClick = onCreate)
-            }
-        }
-    }
-}
-
-@Composable
-private fun PicBox(picPath: String?, onPick: () -> Unit) {
-    val context = LocalContext.current
-    val bitmap = remember(picPath) { picPath?.let { decodeThumbnail(context, it) } }
-
-    Box(
-        modifier = Modifier
-            .size(PIC_BOX.dp)
-            .clip(RoundedCornerShape(Radius.medium))
-            .background(MaterialTheme.colorScheme.surface)
-            .clickable(onClick = onPick),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (bitmap != null) {
-            Image(
-                bitmap = bitmap.asImageBitmap(),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
-        } else {
-            Icon(
-                imageVector = Icons.Outlined.Add,
-                contentDescription = stringResource(R.string.cd_pick_image),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(Sizes.iconMd),
-            )
         }
     }
 }

@@ -62,6 +62,24 @@
     <string name="board_hint">Drag to move the board · pinch to zoom</string>
     <string name="cd_reset_view">Reset view</string>
     <string name="view_reset">View reset</string>
+
+    <!-- Node relations + node actions (2026-10-15) -->
+    <string name="cd_connect">Connect</string>
+    <string name="connect_hint">Now tap another node to connect</string>
+    <string name="connect_cancelled">Connection cancelled</string>
+    <string name="connected_ok">Connected: %1$s → %2$s</string>
+    <string name="link_exists">These two nodes are already connected</string>
+    <string name="link_self">A node cannot connect to itself</string>
+    <string name="delete_node">Delete</string>
+    <string name="node_deleted">Node deleted</string>
+    <string name="undo">Undo</string>
+    <string name="linked_to">Linked to: %1$s</string>
+    <string name="not_linked">Not linked to anything yet</string>
+
+    <!-- List view -->
+    <string name="list_empty_title">No nodes yet</string>
+    <string name="list_empty_body">Create a node on the board and it will appear here.</string>
+    <string name="list_empty_action">Go to the board</string>
     <string name="new_node">new node</string>
     <string name="cd_new_node">Create a node</string>
     <string name="priority">Priority</string>
