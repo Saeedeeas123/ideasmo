@@ -24,13 +24,34 @@ data class IdeaNode(
     val y: Float,
 )
 
-/** A simple, undirected connection between two nodes. */
-data class NodeLink(val fromId: String, val toId: String) {
+/**
+ * A typed, optionally directed relation between two nodes.
+ * [type] is a key from [LinkCatalog]; [label] is the escape hatch for phrases the catalog
+ * does not name. Several different links may exist between the same pair of nodes.
+ */
+data class NodeLink(
+    val fromId: String,
+    val toId: String,
+    val type: String = LinkCatalog.DEFAULT_KEY,
+    val label: String? = null,
+) {
     fun otherEnd(nodeId: String): String = if (fromId == nodeId) toId else fromId
 
     fun connects(a: String, b: String): Boolean =
         (fromId == a && toId == b) || (fromId == b && toId == a)
+
+    /** Two links are the same when they join the same pair with the same phrase. */
+    fun sameAs(other: NodeLink): Boolean =
+        connects(other.fromId, other.toId) && type == other.type && label == other.label
 }
+
+/** A link prepared for display: the sentence plus the name of the node at the other end. */
+data class LinkView(
+    val link: NodeLink,
+    val otherName: String,
+    val sentence: String,
+    val displayLabel: String,
+)
 
 /**
  * Node + link store. Compose-observable in memory, persisted as JSON in the app's private
@@ -61,14 +82,29 @@ object NodeStore {
 
     fun byId(id: String): IdeaNode? = items.firstOrNull { it.id == id }
 
-    /** Every link that touches [nodeId]. */
-    fun linksOf(nodeId: String): List<NodeLink> = linkItems.filter { it.fromId == nodeId || it.toId == nodeId }
+    fun linksOf(nodeId: String): List<NodeLink> =
+        linkItems.filter { it.fromId == nodeId || it.toId == nodeId }
 
-    /** Names of the nodes connected to [nodeId], for the list view. */
+    /** Links of a node, ready to render as sentences. */
+    fun linkViews(nodeId: String): List<LinkView> {
+        val node = byId(nodeId) ?: return emptyList()
+        return linksOf(nodeId).mapNotNull { link ->
+            val other = byId(link.otherEnd(nodeId)) ?: return@mapNotNull null
+            val type = LinkCatalog.byKey(link.type)
+            LinkView(
+                link = link,
+                otherName = other.name,
+                sentence = LinkCatalog.sentence(type, node.name, other.name, link.label),
+                displayLabel = LinkCatalog.displayLabel(type, link.label),
+            )
+        }
+    }
+
     fun connectedNames(nodeId: String): List<String> =
         linksOf(nodeId).mapNotNull { byId(it.otherEnd(nodeId))?.name }
 
-    fun isLinked(a: String, b: String): Boolean = linkItems.any { it.connects(a, b) }
+    fun isLinked(a: String, b: String, type: String? = null): Boolean =
+        linkItems.any { it.connects(a, b) && (type == null || it.type == type) }
 
     fun newId(): String = UUID.randomUUID().toString()
 
@@ -97,8 +133,6 @@ object NodeStore {
             var migrated = 0
             for (i in 0 until nodesArray.length()) {
                 val o = nodesArray.getJSONObject(i)
-                // Nodes written before the board existed have no x / y — lay them out on a grid
-                // so they are visible instead of stacked on the origin.
                 val hasPosition = o.has("x") && o.has("y")
                 if (!hasPosition) migrated++
                 loaded.add(
@@ -120,14 +154,24 @@ object NodeStore {
             if (linksArray != null) {
                 for (i in 0 until linksArray.length()) {
                     val o = linksArray.getJSONObject(i)
-                    loadedLinks.add(NodeLink(o.optString("from"), o.optString("to")))
+                    loadedLinks.add(
+                        NodeLink(
+                            fromId = o.optString("from"),
+                            toId = o.optString("to"),
+                            // Links written before types existed become the neutral default.
+                            type = if (o.has("type")) o.optString("type") else LinkCatalog.DEFAULT_KEY,
+                            label = if (o.isNull("label")) null else o.optString("label"),
+                        ),
+                    )
                 }
             }
 
             items.clear()
             items.addAll(loaded)
             linkItems.clear()
-            linkItems.addAll(loadedLinks.filter { l -> loaded.any { it.id == l.fromId } && loaded.any { it.id == l.toId } })
+            linkItems.addAll(
+                loadedLinks.filter { l -> loaded.any { it.id == l.fromId } && loaded.any { it.id == l.toId } },
+            )
             AppLog.i(
                 "NodeStore",
                 "loaded " + loaded.size + " node(s) / " + linkItems.size + " link(s) from " + file.absolutePath +
@@ -158,21 +202,51 @@ object NodeStore {
     }
 
     /**
-     * Creates a simple connection. Returns a status the UI can explain:
-     * "ok", "self", "exists" or "missing".
+     * Creates a typed connection. Several different types may join the same pair, but the same
+     * type between the same pair is refused. Returns "ok", "self", "exists" or "missing".
      */
-    fun addLink(context: Context, fromId: String, toId: String): String {
+    fun addLink(
+        context: Context,
+        fromId: String,
+        toId: String,
+        typeKey: String = LinkCatalog.DEFAULT_KEY,
+        label: String? = null,
+    ): String {
         if (fromId == toId) return "self"
         if (byId(fromId) == null || byId(toId) == null) return "missing"
-        if (isLinked(fromId, toId)) return "exists"
-        linkItems.add(NodeLink(fromId, toId))
+        val candidate = NodeLink(fromId, toId, typeKey, label)
+        if (linkItems.any { it.sameAs(candidate) }) return "exists"
+        linkItems.add(candidate)
         persist(context)
         AppLog.i(
             "NodeStore",
-            "link added: '" + (byId(fromId)?.name ?: fromId) + "' <-> '" + (byId(toId)?.name ?: toId) +
-                "' total=" + linkItems.size,
+            "link added: '" + (byId(fromId)?.name ?: fromId) + "' " +
+                LinkCatalog.displayLabel(LinkCatalog.byKey(typeKey), label) +
+                " '" + (byId(toId)?.name ?: toId) + "' total=" + linkItems.size,
         )
         return "ok"
+    }
+
+    /** Removes one link. Returns it, so the UI can offer Undo. */
+    fun removeLink(context: Context, link: NodeLink): NodeLink? {
+        val index = linkItems.indexOfFirst { it.sameAs(link) }
+        if (index < 0) return null
+        val removed = linkItems.removeAt(index)
+        persist(context)
+        AppLog.i(
+            "NodeStore",
+            "link removed: " + removed.type + " " + removed.fromId + " -> " + removed.toId +
+                " remaining=" + linkItems.size,
+        )
+        return removed
+    }
+
+    fun restoreLink(context: Context, link: NodeLink) {
+        if (linkItems.none { it.sameAs(link) }) {
+            linkItems.add(link)
+            persist(context)
+            AppLog.i("NodeStore", "link restored: " + link.type)
+        }
     }
 
     /** Removes a node and every link that touched it. Returns what was removed, for undo. */
@@ -195,7 +269,7 @@ object NodeStore {
     fun restore(context: Context, node: IdeaNode, links: List<NodeLink>) {
         if (byId(node.id) == null) items.add(node)
         links.forEach { l ->
-            if (byId(l.fromId) != null && byId(l.toId) != null && !isLinked(l.fromId, l.toId)) {
+            if (byId(l.fromId) != null && byId(l.toId) != null && linkItems.none { it.sameAs(l) }) {
                 linkItems.add(l)
             }
         }
@@ -224,6 +298,8 @@ object NodeStore {
                 val o = JSONObject()
                 o.put("from", l.fromId)
                 o.put("to", l.toId)
+                o.put("type", l.type)
+                o.put("label", l.label ?: JSONObject.NULL)
                 linksArray.put(o)
             }
             val root = JSONObject()

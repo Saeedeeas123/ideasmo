@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -32,6 +34,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.saeed.ideasmo.R
 import com.saeed.ideasmo.core.model.IdeaNode
+import com.saeed.ideasmo.core.model.LinkCatalog
+import com.saeed.ideasmo.core.model.LinkView
 import com.saeed.ideasmo.core.model.NodeStore
 import com.saeed.ideasmo.ui.components.EmptyState
 import com.saeed.ideasmo.ui.theme.Radius
@@ -39,8 +43,8 @@ import com.saeed.ideasmo.ui.theme.Sizes
 import com.saeed.ideasmo.ui.theme.Spacing
 
 /**
- * List view of the same nodes the board shows — including their connections, so a relation
- * created on the board is visible here too.
+ * List view of the same nodes the board shows — including every relation, read as a sentence
+ * and drawn with the same swatch as the board, so the two views cannot disagree.
  */
 @Composable
 internal fun BoardListView(
@@ -68,7 +72,7 @@ internal fun BoardListView(
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+        contentPadding = PaddingValues(
             horizontal = Spacing.screenH,
             vertical = Spacing.l,
         ),
@@ -78,7 +82,7 @@ internal fun BoardListView(
             ListNodeRow(
                 node = node,
                 selected = node.id == selectedId,
-                linkedNames = NodeStore.connectedNames(node.id),
+                linkViews = NodeStore.linkViews(node.id),
                 onClick = { onSelect(node) },
             )
         }
@@ -89,7 +93,7 @@ internal fun BoardListView(
 private fun ListNodeRow(
     node: IdeaNode,
     selected: Boolean,
-    linkedNames: List<String>,
+    linkViews: List<LinkView>,
     onClick: () -> Unit,
 ) {
     Card(
@@ -143,22 +147,35 @@ private fun ListNodeRow(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+
             Spacer(Modifier.height(Spacing.s))
-            Text(
-                text = if (linkedNames.isEmpty()) {
-                    stringResource(R.string.not_linked)
-                } else {
-                    stringResource(R.string.linked_to, linkedNames.joinToString(", "))
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (linkedNames.isEmpty()) {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                } else {
-                    MaterialTheme.colorScheme.primary
-                },
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
+            if (linkViews.isEmpty()) {
+                Text(
+                    text = stringResource(R.string.not_linked),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                linkViews.forEach { view ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = Spacing.xs),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        LinkSwatch(type = LinkCatalog.byKey(view.link.type))
+                        Spacer(Modifier.width(Spacing.s))
+                        Text(
+                            text = view.sentence,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
         }
     }
 }

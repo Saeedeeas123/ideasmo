@@ -140,6 +140,46 @@ you touch the board and start travelling, lingers ~900 ms after you let go, then
 - Honest note: it is driven by *any* touch on the board, so it also appears briefly while dragging a
   node. That is harmless and arguably informative, and it keeps the gesture tracking simple.
 
+### 6.5 Typed relations — the full taxonomy (v0.5.0)
+
+Saeed's order: *support literally everything* — every family, every link, every "reads as" — but keep
+it **clean and organised**, because an LLM layer is planned later and will need the full vocabulary.
+
+**Single source of truth:** `core/model/LinkCatalog.kt` holds 7 families and **42 link types**, each
+with a name, a sentence template (`%1$s is a %2$s`), a real example, a one-line meaning, direction,
+line style, arrow mode and colour role. The picker, the board and the Help screen are **generated
+from it**, so they cannot drift apart.
+
+**The families** (each with the question it answers):
+Hierarchy · Composition · Association · Equivalence · Causality · Logic & argument · Process & time.
+The full table lives in the knowledge base: `Ideasmo — Node Relation Taxonomy (7 Families, 42 Link Types)`.
+
+**Creating a relation:** tap a node → action bar → **Link** → the link manager opens (it covers the
+screen, so 42 types stay readable) → pick a type → the hint bar says *"Now tap the target for 'depends
+on'"* → tap the target. A **custom phrase** field at the bottom is the escape hatch for relations the
+catalog does not name.
+
+**Managing relations:** the link manager lists a node's **existing links first**, each read as a full
+sentence with its swatch, and each removable (**Undo** in the snackbar).
+
+**Visual grammar** — 4 colour roles × 4 line styles × 3 arrow modes, plus the relation name pinned to
+the middle of the line (drawn for every type except the neutral default, so a plain board stays calm):
+- Lines are **trimmed to the node edges**, so nothing runs under a card and arrowheads stay visible.
+- Double lines mark strong relations (composition, equivalence) without inventing another colour.
+- Every colour is a Material 3 **role** — no raw hex, so dark mode and dynamic colour work.
+
+**Decisions Saeed confirmed (2026-10-15):** several different link types may join the same pair
+(duplicate protection is per *type*); the default stays `relates to`; polarity is expressed by
+choosing `increases`/`decreases`/`prevents` rather than a separate +/− field.
+
+**Help + Settings.** Settings is now a real screen (theme, Help, app logs, About — nothing
+placeholder). Help documents the board gestures and **the entire relation catalog**, generated from
+`LinkCatalog` so the documentation can never be out of date.
+
+**Honest limits:** no canvas edge selection (links are managed from the node, not the line); no
+direction flag stored (the arrow shows the reading direction); loop detection over causal polarity is
+possible but not implemented.
+
 ## 7. Assets
 
 - **Icons:** `material-icons-extended` 1.7.2 (local, no download). Outlined for chrome.

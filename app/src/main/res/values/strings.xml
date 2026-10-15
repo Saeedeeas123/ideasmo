@@ -80,6 +80,43 @@
     <string name="list_empty_title">No nodes yet</string>
     <string name="list_empty_body">Create a node on the board and it will appear here.</string>
     <string name="list_empty_action">Go to the board</string>
+
+    <!-- Link manager / typed relations (2026-10-15) -->
+    <string name="link_picker_title">Link “%1$s” to…</string>
+    <string name="link_existing">Existing links</string>
+    <string name="link_remove">Remove</string>
+    <string name="link_removed">Link removed</string>
+    <string name="link_custom_hint">Or type your own phrase</string>
+    <string name="link_custom_use">Use this phrase</string>
+    <string name="link_choose_hint">Now tap the target for “%1$s”</string>
+    <string name="link_action">Link</string>
+    <string name="link_close">Close</string>
+
+    <!-- Settings + Help -->
+    <string name="settings_title">Settings</string>
+    <string name="help_title">Help</string>
+    <string name="settings_appearance">Appearance</string>
+    <string name="settings_appearance_detail">Day or night theme, applied to the whole app</string>
+    <string name="settings_help">Help</string>
+    <string name="settings_help_detail">How the board works and every kind of node relation</string>
+    <string name="settings_logs">App logs</string>
+    <string name="settings_logs_detail">Live log, previous sessions, copy and share</string>
+    <string name="about_title">About</string>
+    <string name="about_version">Ideasmo %1$s</string>
+    <string name="about_line">Idea processor — capture an idea, give it structure, keep it in one place.</string>
+
+    <string name="help_board_title">Using the board</string>
+    <string name="help_links_title">Node relations</string>
+    <string name="help_links_intro">A relation is a sentence: “A is a B”, “A requires B”. Choose the phrase that reads correctly, and the line is drawn to match it.</string>
+    <string name="help_gesture_pan">Drag one finger — move the board</string>
+    <string name="help_gesture_zoom">Pinch, or use − and + — zoom from 25% to 200%</string>
+    <string name="help_gesture_reset">Tap the zoom percentage — reset the view</string>
+    <string name="help_gesture_minimap">Touch and travel — the minimap appears, your finger is the red dot</string>
+    <string name="help_gesture_node">Drag a node — move it anywhere</string>
+    <string name="help_gesture_select">Tap a node — select it, then Link or Delete appear</string>
+    <string name="help_gesture_create">Tap “new node” — it is created where you are looking</string>
+    <string name="help_gesture_list">The list button — switch between board and list</string>
+    <string name="help_link_style">How it is drawn</string>
     <string name="new_node">new node</string>
     <string name="cd_new_node">Create a node</string>
     <string name="priority">Priority</string>

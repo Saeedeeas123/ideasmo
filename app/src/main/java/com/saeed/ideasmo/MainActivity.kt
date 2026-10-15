@@ -23,12 +23,14 @@ import com.saeed.ideasmo.core.log.AppLog
 import com.saeed.ideasmo.core.log.LogViewerScreen
 import com.saeed.ideasmo.core.model.NodeStore
 import com.saeed.ideasmo.core.prefs.ThemePrefs
+import com.saeed.ideasmo.ui.board.BoardScreen
+import com.saeed.ideasmo.ui.help.HelpScreen
 import com.saeed.ideasmo.ui.home.HomeEntry
 import com.saeed.ideasmo.ui.home.HomeScreen
 import com.saeed.ideasmo.ui.home.RecentItem
-import com.saeed.ideasmo.ui.board.BoardScreen
 import com.saeed.ideasmo.ui.project.ProjectEntry
 import com.saeed.ideasmo.ui.project.ProjectScreen
+import com.saeed.ideasmo.ui.settings.SettingsScreen
 import com.saeed.ideasmo.ui.theme.IdeasmoTheme
 import kotlinx.coroutines.launch
 
@@ -79,6 +81,8 @@ private sealed interface Screen {
     data object Home : Screen
     data object Project : Screen
     data object Board : Screen
+    data object Settings : Screen
+    data object Help : Screen
     data object Logs : Screen
 }
 
@@ -143,6 +147,7 @@ private fun IdeasmoApp() {
                         AppLog.i("UI", "home entry tapped: " + entry.name)
                         when (entry) {
                             HomeEntry.Project -> push(Screen.Project)
+                            HomeEntry.Settings -> push(Screen.Settings)
                             else -> notBuilt(context.getString(entry.labelRes))
                         }
                     },
@@ -168,6 +173,16 @@ private fun IdeasmoApp() {
                 onToggleTheme = toggleTheme,
                 onBack = { pop() },
             )
+
+            Screen.Settings -> SettingsScreen(
+                isDark = isDark,
+                onToggleTheme = toggleTheme,
+                onOpenHelp = { push(Screen.Help) },
+                onOpenLogs = { push(Screen.Logs) },
+                onBack = { pop() },
+            )
+
+            Screen.Help -> HelpScreen(onBack = { pop() })
 
             Screen.Logs -> LogViewerScreen(
                 onClose = {
