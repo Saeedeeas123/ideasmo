@@ -44,4 +44,48 @@
     <string name="filter_info">Info</string>
     <string name="filter_warn">Warn</string>
     <string name="filter_error">Error</string>
+
+    <!-- Project screen (wireframe 1, 2026-10-15) -->
+    <string name="project_title">Project</string>
+    <string name="cd_back">Back</string>
+    <string name="entry_idea">Idea</string>
+    <string name="entry_idea_library">Idea Library</string>
+    <string name="entry_mindmap">Mindmap</string>
+    <string name="entry_mindmap_library">Mindmap Library</string>
+    <string name="entry_knowledge_library">Knowledge Library</string>
+    <string name="entry_note">Note</string>
+    <string name="entry_note_library">Note Library</string>
+
+    <!-- Idea node editor (wireframe 2, 2026-10-15) -->
+    <string name="idea_title">Idea</string>
+    <string name="new_node">new node</string>
+    <string name="cd_new_node">Create a node</string>
+    <string name="priority">Priority</string>
+    <string name="cd_priority">Priority %1$d</string>
+    <string name="node_name">Node name</string>
+    <string name="description">Description</string>
+    <string name="ai_assist">Ai</string>
+    <string name="ai_not_built">AI assist — not built yet</string>
+    <string name="pic">Pic</string>
+    <string name="cd_pick_image">Add a picture</string>
+    <string name="create_node">Create node</string>
+    <string name="cancel">Cancel</string>
+    <string name="node_created">Node created: %1$s</string>
+    <string name="pic_pick_failed">Could not load that image</string>
+    <string name="node_name_required">Give the node a name first</string>
+
+    <!-- Node canvas toolbar -->
+    <string name="tool_graph">Graph</string>
+    <string name="tool_list">List</string>
+    <string name="graph_not_built">Graph view — not built yet</string>
+    <string name="list_not_built">List view — not built yet</string>
+    <string name="cd_zoom_in">Zoom in</string>
+    <string name="cd_zoom_out">Zoom out</string>
+    <string name="zoom_level">%1$d%%</string>
+    <string name="nodes_count">%1$d node(s)</string>
+
+    <!-- Theme (day / night) -->
+    <string name="cd_theme_toggle">Switch day / night</string>
+    <string name="theme_is_day">Day mode</string>
+    <string name="theme_is_night">Night mode</string>
 </resources>

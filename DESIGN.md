@@ -44,15 +44,37 @@ Roles used: `primary`, `onPrimary`, `primaryContainer`, `onPrimaryContainer`, `s
 Decisions already made: one filled pill primary action per screen; tonal tiles rather than
 shadows; divider between groups only; long text is `maxLines` + ellipsis.
 
-## 6. Screen inventory — v0.1.0 ships the home screen only
+## 6. Screen inventory — v0.2.0
 
 | Screen | Default | Empty | Loading | Error | Long content |
 |---|---|---|---|---|---|
-| Home | ✅ | ✅ (recent list empty) | n/a — no async data source yet | n/a — no async data source yet | ✅ scrolls, labels ellipsised |
-| Logs (long-press the title) | ✅ | ✅ ("No log lines yet.") | n/a | ✅ banner if the log file could not be opened | ✅ scrolls |
+| Home | ✅ | ✅ (recent list empty) | n/a — no async source | n/a — no async source | ✅ scrolls, labels ellipsised |
+| Project (wireframe 1) | ✅ 8 tiles | n/a (fixed menu) | n/a | n/a | ✅ scrolls |
+| Idea node editor (wireframe 2) | ✅ | ✅ ("new node" only, no nodes yet) | n/a | ✅ field-level validation message | ✅ scrolls, name/description ellipsised |
+| Logs (long-press Home title) | ✅ | ✅ ("No log lines yet.") | n/a | ✅ banner if the log file could not be opened | ✅ scrolls |
 
-Honest note: loading/error states for Home arrive with the first module that reads data
-(Project / Knowledge base). They are not faked now.
+Honest note: loading/error states for the list screens arrive with the first module that reads
+data remotely. They are not faked now. Validation error on the node form is real
+(creating a node with no name is refused with an inline explanation + a log entry).
+
+### 6.1 Wireframe 2 (Idea) — fidelity notes
+
+| Sketch element | Implementation | Note |
+|---|---|---|
+| "new node" + circle button, centre | `NewNodeButton` — label above a 72dp primary circle | initially the only content, as drawn |
+| Panel that opens on tap | `NodeForm` card below the button | inline (not a modal), matching the sketch's spatial flow |
+| Priority ○○○○○ | 5 tappable dots, 48dp targets, filled up to the chosen level | default 3 |
+| Node name | `OutlinedTextField` with a persistent label | required — empty name is refused |
+| Description (+ Ai box) | description field, `Ai` tonal button in the section header | **deviation:** the sketch puts `Ai` inside the box's top-right corner; it is placed in the header row instead so it can never overlap typed text. Behaviour identical, honesty preserved: `Ai` reports "not built yet" |
+| Pic (+) | 112dp box → system photo picker → image copied into app storage | copy (not just a URI) so it survives restarts without URI permissions |
+| graph / zoom − + / List (bottom bar) | fixed 56dp toolbar, full 48dp targets | zoom is **real** (50–200%, scales the canvas content, shows the %). Graph and List report "not built yet" and log the tap |
+| Top settings: dark / light | day/night toggle in the Idea top bar, applied app-wide and persisted | follows the system until first use |
+
+### 6.2 Mobile adaptation of the form
+
+The sketch lays Priority and Node name side by side. On a 360dp phone that would squeeze both,
+so the form stacks them (Priority full width → Node name full width) and keeps the sketch's
+second row intact (Description | Pic). No information is lost; nothing is clipped.
 
 ## 7. Assets
 
