@@ -64,6 +64,11 @@ object StructureLayout {
      * Arranges the trees that start at the central nodes.
      * Returns positions for every node it touched; nodes outside those trees are absent, so a
      * caller can apply the result as a partial move.
+     *
+     * When [anchorRootAtOrigin] is true the whole result is translated so that the **centre of the
+     * first central node sits exactly on ([originX], [originY])** — the board's fixed origin. That is
+     * what makes Arrange deterministic: the result depends on the origin and the branch order only,
+     * never on where the nodes happened to be dragged, so running it twice cannot drift.
      */
     fun arrange(
         nodes: List<IdeaNode>,
@@ -73,17 +78,37 @@ object StructureLayout {
         spacing: LayoutSpacing = LayoutSpacing.Normal,
         originX: Float = 0f,
         originY: Float = 0f,
+        anchorRootAtOrigin: Boolean = false,
     ): Map<String, LayoutPoint> {
         if (nodes.isEmpty()) return emptyMap()
         val byId = nodes.associateBy { it.id }
         val children = childrenMap(nodes, links)
         val roots = resolveRoots(nodes, links, preferredRoots).filter { byId.containsKey(it) }
         if (roots.isEmpty()) return emptyMap()
-        return if (direction == LayoutDirection.Radial) {
+        val laidOut = if (direction == LayoutDirection.Radial) {
             radial(byId, children, roots, spacing, originX, originY)
         } else {
             linear(byId, children, roots, direction, spacing, originX, originY)
         }
+        return if (anchorRootAtOrigin) anchorAt(laidOut, roots.first(), originX, originY) else laidOut
+    }
+
+    /**
+     * Translates a finished layout so [anchorId]'s centre lands on the origin.
+     * Done after the layout rather than during it, so it works for every direction — including
+     * Radial, where a parent's position is an angle, not a cursor.
+     */
+    private fun anchorAt(
+        positions: Map<String, LayoutPoint>,
+        anchorId: String,
+        originX: Float,
+        originY: Float,
+    ): Map<String, LayoutPoint> {
+        val anchor = positions[anchorId] ?: return positions
+        val dx = originX - (anchor.x + NODE_HALF_W)
+        val dy = originY - (anchor.y + NODE_HALF_H)
+        if (dx == 0f && dy == 0f) return positions
+        return positions.mapValues { (_, point) -> LayoutPoint(point.x + dx, point.y + dy) }
     }
 
     /**
@@ -166,7 +191,10 @@ object StructureLayout {
             return maxOf(span, extent)
         }
 
-        var cursor = if (horizontal) originY else originX
+        // The cursor is measured from the origin, NOT started at it: the transform below already adds
+        // originX / originY. Starting it at the origin too (as v0.6.0 did) shifted the whole map by
+        // the origin on every Arrange — the drift that made Arrange feel unreliable.
+        var cursor = 0f
         roots.forEach { root ->
             val used = place(root, 0, cursor)
             if (used > 0f) cursor += used + gap * 2f

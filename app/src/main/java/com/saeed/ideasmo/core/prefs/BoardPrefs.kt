@@ -21,6 +21,7 @@ object BoardPrefs {
     private const val KEY_SPACING = "layout_spacing"
     private const val KEY_LABELS = "show_link_labels"
     private const val KEY_MINIMAP = "show_minimap"
+    private const val KEY_ORIGIN = "show_origin"
 
     const val DEFAULT_PATTERN = "grid"
     const val DEFAULT_PALETTE = "default"
@@ -33,6 +34,7 @@ object BoardPrefs {
     private val spacingState = mutableStateOf(DEFAULT_SPACING)
     private val labelsState = mutableStateOf(true)
     private val minimapState = mutableStateOf(true)
+    private val originState = mutableStateOf(true)
 
     private var loaded = false
 
@@ -42,6 +44,7 @@ object BoardPrefs {
     val spacingKey: String get() = spacingState.value
     val showLinkLabels: Boolean get() = labelsState.value
     val showMinimap: Boolean get() = minimapState.value
+    val showOrigin: Boolean get() = originState.value
 
     fun init(context: Context) {
         if (loaded) return
@@ -52,12 +55,14 @@ object BoardPrefs {
         spacingState.value = prefs.getString(KEY_SPACING, DEFAULT_SPACING) ?: DEFAULT_SPACING
         labelsState.value = prefs.getBoolean(KEY_LABELS, true)
         minimapState.value = prefs.getBoolean(KEY_MINIMAP, true)
+        originState.value = prefs.getBoolean(KEY_ORIGIN, true)
         loaded = true
         AppLog.i(
             "BoardPrefs",
             "board settings loaded: pattern=" + patternState.value + " palette=" + paletteState.value +
                 " direction=" + directionState.value + " spacing=" + spacingState.value +
-                " labels=" + labelsState.value + " minimap=" + minimapState.value,
+                " labels=" + labelsState.value + " minimap=" + minimapState.value +
+                " origin=" + originState.value,
         )
     }
 
@@ -95,6 +100,12 @@ object BoardPrefs {
         minimapState.value = on
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putBoolean(KEY_MINIMAP, on).apply()
         AppLog.i("BoardPrefs", "minimap -> $on")
+    }
+
+    fun setShowOrigin(context: Context, on: Boolean) {
+        originState.value = on
+        context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putBoolean(KEY_ORIGIN, on).apply()
+        AppLog.i("BoardPrefs", "origin marker -> $on")
     }
 
     private fun write(context: Context, key: String, value: String) {

@@ -30,6 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.FormatListBulleted
 import androidx.compose.material.icons.outlined.AccountTree
+import androidx.compose.material.icons.outlined.Adjust
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AutoFixHigh
 import androidx.compose.material.icons.outlined.DarkMode
@@ -82,6 +83,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.saeed.ideasmo.R
 import com.saeed.ideasmo.core.log.AppLog
+import com.saeed.ideasmo.core.model.BoardSpace
 import com.saeed.ideasmo.core.model.IdeaNode
 import com.saeed.ideasmo.core.model.LayoutDirection
 import com.saeed.ideasmo.core.model.LayoutPoint
@@ -201,6 +203,12 @@ private class BoardState {
             offsetY = cy - (minY + maxY) / 2f
         }
     }
+
+    /** Brings a point of board space to the middle of the screen — used for the origin. */
+    fun centreOnWorld(wx: Float, wy: Float) {
+        offsetX = viewportW / 2f - wx * scale
+        offsetY = viewportH / 2f - wy * scale
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -223,6 +231,7 @@ fun BoardScreen(
     val spacing = LayoutSpacing.fromKey(BoardPrefs.spacingKey)
     val showLabels = BoardPrefs.showLinkLabels
     val showMinimapPref = BoardPrefs.showMinimap
+    val showOrigin = BoardPrefs.showOrigin
 
     val allNodes = NodeStore.nodesOf(kind)
     val hidden = NodeStore.hiddenIds()
@@ -345,23 +354,24 @@ fun BoardScreen(
         }
     }
 
-    // The auto-layout. It only moves the trees of the central nodes; free nodes are never touched,
-    // and the previous positions are kept so the whole thing can be undone.
+    // The auto-layout, measured from the board's origin.
+    //
+    // Arrange puts the centre of the first central node exactly on board (0, 0) and grows the map
+    // from there, so the result depends on the origin and the branch order only — never on where the
+    // nodes happened to be dragged. That is what makes it repeatable: pressing it twice cannot drift.
+    // Nodes that belong to no tree are not touched, and the previous positions are kept for Undo.
     val arrangeNow: () -> Unit = {
         val ids = nodes.map { it.id }
         val roots = NodeStore.rootIds(kind).filter { it in ids }
-        val originX = roots.mapNotNull { NodeStore.byId(it)?.x }.minOrNull()
-            ?: board.screenToWorldX(board.viewportW / 2f)
-        val originY = roots.mapNotNull { NodeStore.byId(it)?.y }.minOrNull()
-            ?: board.screenToWorldY(board.viewportH / 2f)
         val positions = StructureLayout.arrange(
             nodes = nodes,
             links = links,
             preferredRoots = roots,
             direction = direction,
             spacing = spacing,
-            originX = originX,
-            originY = originY,
+            originX = BoardSpace.ORIGIN_X,
+            originY = BoardSpace.ORIGIN_Y,
+            anchorRootAtOrigin = true,
         )
         if (positions.isEmpty()) {
             AppLog.i("Board", "arrange: nothing to arrange")
@@ -369,14 +379,21 @@ fun BoardScreen(
         } else {
             val before = nodes.associate { it.id to LayoutPoint(it.x, it.y) }
             NodeStore.applyPositions(context, positions)
+            // Follow the result: the map now sits at the origin, so the view goes there too.
+            board.centreOnWorld(BoardSpace.ORIGIN_X, BoardSpace.ORIGIN_Y)
+            val anchorName = StructureLayout
+                .resolveRoots(nodes, links, roots)
+                .firstOrNull()
+                ?.let { NodeStore.nameOf(it) }
+                ?: "?"
             AppLog.i(
                 "Board",
                 "arranged " + positions.size + " node(s) as " + direction.key + " / " + spacing.key +
-                    " from " + roots.size + " central node(s)",
+                    " anchored on the origin, central node: '" + anchorName + "'",
             )
             scope.launch {
                 val result = snackbarHostState.showSnackbar(
-                    message = context.getString(R.string.arrange_done, positions.size),
+                    message = context.getString(R.string.arrange_done, anchorName, positions.size),
                     actionLabel = context.getString(R.string.undo),
                     withDismissAction = true,
                 )
@@ -516,6 +533,16 @@ fun BoardScreen(
                                     offsetY = board.offsetY,
                                     colors = boardColors,
                                 )
+                                // The floor marker: board (0, 0). Drawn under the links and the
+                                // cards, so it reads as part of the surface, not as an object.
+                                if (showOrigin) {
+                                    drawBoardOrigin(
+                                        scale = board.scale,
+                                        offsetX = board.offsetX,
+                                        offsetY = board.offsetY,
+                                        colors = boardColors,
+                                    )
+                                }
                                 // The selected link gets a halo underneath, so a tapped line is
                                 // obvious even when several relations cross the same area.
                                 edgeDraws.firstOrNull { it.first.linkId == selectedLinkId }?.let { (edge, color) ->
@@ -788,6 +815,20 @@ fun BoardScreen(
                                 onClick = arrangeNow,
                             )
                             ToolButton(
+                                icon = Icons.Outlined.Adjust,
+                                contentDescription = stringResource(R.string.tool_origin),
+                                enabled = onBoard,
+                                onClick = {
+                                    board.centreOnWorld(BoardSpace.ORIGIN_X, BoardSpace.ORIGIN_Y)
+                                    AppLog.i("Board", "view centred on the origin")
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar(
+                                            context.getString(R.string.origin_here),
+                                        )
+                                    }
+                                },
+                            )
+                            ToolButton(
                                 icon = Icons.Outlined.Remove,
                                 contentDescription = stringResource(R.string.cd_zoom_out),
                                 enabled = onBoard && board.scale > MIN_SCALE,
@@ -989,6 +1030,7 @@ fun BoardScreen(
                     spacing = spacing,
                     showLabels = showLabels,
                     showMinimap = showMinimapPref,
+                    showOrigin = showOrigin,
                     rootCount = NodeStore.rootIds(kind).size,
                     hiddenCount = hidden.size,
                     onPattern = { BoardPrefs.setPattern(context, it.key) },
@@ -997,6 +1039,7 @@ fun BoardScreen(
                     onSpacing = { BoardPrefs.setSpacing(context, it.key) },
                     onShowLabels = { BoardPrefs.setShowLinkLabels(context, it) },
                     onShowMinimap = { BoardPrefs.setShowMinimap(context, it) },
+                    onShowOrigin = { BoardPrefs.setShowOrigin(context, it) },
                     onArrange = arrangeNow,
                     onCollapseAll = {
                         NodeStore.setCollapsedAll(context, true)

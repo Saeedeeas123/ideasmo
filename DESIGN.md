@@ -237,6 +237,47 @@ minimap is still not interactive; there is no multi-select and no rubber-band se
 hides a subtree from the board and the list (a badge and *Expand all* are the way back); nothing has
 been device-tested yet — Saeed's install is the first real check.
 
+### 6.7 The board origin — one fixed point everything is measured from (v0.7.0)
+
+Saeed's diagnosis after testing v0.6.0: *"the board has no starting point, no initial anchor point —
+and I think that is exactly why Arrange does not work."* He was right, and the fix is a coordinate
+system with a fixed origin.
+
+**The coordinate system** (`core/model/BoardSpace.kt`) — X is board units to the right, Y is board
+units downwards, Z is the layer a node sits on. The **origin (0, 0) is the only fixed point in board
+space**: the view can travel anywhere and nodes can be dragged anywhere, but the origin never moves.
+The user never has to think about it and never has to work with it — they see one dot in a ring, and
+that is all.
+
+**What the user sees.** A dot inside a ring with four short arms, drawn at board (0, 0), scaled with
+the zoom so it behaves like a mark on the floor: it stays put while the view travels over it. Drawn in
+the board's accent role, under the links and under the cards, deliberately quiet. It can be hidden
+from the project settings (Display → *Show the origin*), and the toolbar's **Origin** button brings
+the view back to it from wherever you have travelled.
+
+**Arrange, measured from the origin.** Pressing Arrange now puts the **centre of the first central
+node exactly on the origin** and grows the map from there. The result depends on the origin, the
+branch order, the direction and the spacing — and on nothing else. Consequences:
+
+- **It cannot drift.** Pressing Arrange twice reproduces the identical map, whatever happened to the
+  nodes in between (there is a JVM test for exactly this).
+- **It is comparable.** Two maps arranged from the origin sit in the same place in board space, so
+  they can be offset deliberately later instead of by accident.
+- **The view follows the result** — after arranging, the viewport is centred on the origin, so the
+  map is never arranged "somewhere off screen".
+- **Manual positions are still respected**: only the designated trees move, and the whole operation
+  still offers Undo.
+
+**The bug this uncovered (v0.6.0, found by the new regression test):** the layout cursor was seeded
+with the origin and the origin was then added *again* by the coordinate transform, so every Arrange
+displaced the whole map by the origin it was given. With the origin at 0 that was invisible; with a
+dragged board it was exactly the drift that made Arrange feel broken. Fixed by measuring the cursor
+from zero and adding the origin once, in one place.
+
+**Z is reserved, not built.** Every node currently sits on layer 0 and Z only decides the drawing
+order (older nodes are drawn first, so newer ones overlap them). A real Z control — raise or lower a
+node, layer separation, per-layer dimming — lands on this axis without a rewrite.
+
 ## 7. Assets
 
 - **Icons:** `material-icons-extended` 1.7.2 (local, no download). Outlined for chrome.
@@ -299,3 +340,20 @@ no dependency where a Compose `Canvas` would do.
 - Open visual questions for that check: does a link tap land reliably on a thin line; is the node
   panel reachable often enough (single tap → action bar, long-press → panel); does the blueprint /
   charcoal board read well against the node cards; does the hex pattern appear at normal zoom.
+
+### v0.7.0 sign-off (2026-10-15)
+
+- Implemented: the board's coordinate system with a fixed origin (`BoardSpace`), the origin marker on
+  the canvas, **Arrange anchored on the origin** (the central node's centre on (0, 0)), the view
+  following the arrangement, the **Origin** toolbar button, the *Show the origin* display setting and
+  Help text.
+- Found and fixed on the way: the v0.6.0 double-origin bug that displaced the whole map on every
+  Arrange — caught by a new regression test, not by eye. This is very likely the concrete reason
+  Arrange felt like it did not work.
+- Verified how: `:app:testDebugUnitTest` **14/14 green** (the structure engine, now including "the
+  central node lands on the origin", "arranging twice cannot drift", "anchoring works for radial" and
+  the double-offset regression) and `:app:assembleDebug` **BUILD SUCCESSFUL in 2m 12s with 0
+  warnings**; APK badging v0.7.0 (versionCode 7); `BoardSpace` and `drawBoardOrigin` confirmed in the
+  APK dex.
+- Not verified: the same gap as v0.6.0 — the look and the touch feel on the device. The first real
+  check is Saeed installing the APK.

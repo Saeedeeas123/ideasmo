@@ -68,6 +68,9 @@ fun HelpScreen(onBack: () -> Unit) {
         stringResource(R.string.help_structure_3),
         stringResource(R.string.help_structure_4),
         stringResource(R.string.help_structure_5),
+        stringResource(R.string.help_origin_1),
+        stringResource(R.string.help_origin_2),
+        stringResource(R.string.help_origin_3),
     )
     val boardMode = listOf(
         stringResource(R.string.help_board_mode_1),

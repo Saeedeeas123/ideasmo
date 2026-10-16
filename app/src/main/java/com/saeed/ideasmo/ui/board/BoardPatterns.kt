@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
+import com.saeed.ideasmo.core.model.BoardSpace
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.cos
@@ -129,6 +130,41 @@ internal fun boardColorsOf(palette: BoardPalette): BoardColors {
 
 /** A hex cell costs six lines; above this many cells the pattern is skipped rather than stuttered. */
 private const val MAX_HEX_CELLS = 700
+
+/**
+ * The origin marker — the only part of the coordinate system the user ever sees.
+ *
+ * A dot inside a ring with four short arms, drawn at board (0, 0) and scaled with the zoom, so it
+ * behaves like a mark on the floor: it stays put while the view travels over it. It is drawn in the
+ * board's accent role, under the nodes and under the links, and it is deliberately quiet — it is a
+ * reference point, not a feature that asks for attention.
+ */
+internal fun DrawScope.drawBoardOrigin(
+    scale: Float,
+    offsetX: Float,
+    offsetY: Float,
+    colors: BoardColors,
+) {
+    if (scale <= 0f) return
+    val cx = BoardSpace.ORIGIN_X * scale + offsetX
+    val cy = BoardSpace.ORIGIN_Y * scale + offsetY
+    val ring = 22f * scale
+    if (ring < 3f) return
+    if (cx < -120f || cy < -120f || cx > size.width + 120f || cy > size.height + 120f) return
+
+    val arm = 34f * scale
+    val dot = max(1.6f, 4f * scale)
+    val stroke = max(1f, 1.5f * scale)
+    val faint = colors.accent.copy(alpha = 0.45f)
+    val strong = colors.accent.copy(alpha = 0.9f)
+
+    drawCircle(color = faint, radius = ring, center = Offset(cx, cy), style = Stroke(width = stroke))
+    drawLine(faint, Offset(cx - arm, cy), Offset(cx - ring, cy), strokeWidth = stroke)
+    drawLine(faint, Offset(cx + ring, cy), Offset(cx + arm, cy), strokeWidth = stroke)
+    drawLine(faint, Offset(cx, cy - arm), Offset(cx, cy - ring), strokeWidth = stroke)
+    drawLine(faint, Offset(cx, cy + ring), Offset(cx, cy + arm), strokeWidth = stroke)
+    drawCircle(color = strong, radius = dot, center = Offset(cx, cy))
+}
 
 /** Draws the chosen surface: the palette fill first, then the pattern. */
 internal fun DrawScope.drawBoardBackground(

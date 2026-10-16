@@ -3,7 +3,7 @@
 An idea processor for Android: capture an idea, give it structure, keep it in one place.
 Personal project of Saeed (`com.saeed.ideasmo`), built entirely on-device.
 
-**Current version: v0.6.0** (versionCode 6)
+**Current version: v0.7.0** (versionCode 7)
 
 ## What it is
 
@@ -16,12 +16,12 @@ line style, arrow mode and colour role.
 
 | Area | What works |
 |---|---|
-| Board | Pan, pinch zoom 25–200 %, drag nodes, grid/pattern surface, travelling minimap, reset view |
+| Board | Pan, pinch zoom 25–200 %, drag nodes, grid/pattern surface, travelling minimap, reset view, **origin marker + Origin button** |
 | Nodes | Create with priority / name / description / picture; select, drag, delete with Undo |
 | Links | Create from a node or from the link manager; **tap a link to open the inspector** |
 | Link inspector | Change the relation, swap its direction, override its colour, add your own phrase, see the other relations between the same pair, delete with Undo |
 | Node panel | **Links out** in stored branch order (up/down arrows, auto-order by name / priority / age) and **Links in**; every row opens the inspector |
-| Structure | Central nodes (more than one), collapse/expand a branch, move a subtree left/right/up/down, **Arrange** in Right / Left / Down / Up / Radial at Compact / Normal / Wide spacing, with Undo |
+| Structure | Central nodes (more than one), collapse/expand a branch, move a subtree left/right/up/down, **Arrange** in Right / Left / Down / Up / Radial at Compact / Normal / Wide spacing — **anchored on the board origin**, with Undo |
 | Board modes | 8 surfaces — plain, grid, dots, graph paper, ruled lines, isometric, hex, blueprint — each with a live preview |
 | Board themes | App theme (day/night + dynamic colour), paper, warm, mint, charcoal, blueprint |
 | List view | The same nodes and the same relations, grouped into links out / links in, every row opening the inspector |
@@ -73,11 +73,16 @@ DESIGN.md                    the design contract (tokens, screens, decisions, ho
 | v0.4.0 | Node relations on the board + list view, travelling minimap, delete with Undo |
 | v0.5.0 | Full typed-relation system (7 families / 42 types), link manager, real Settings + Help |
 | v0.6.0 | Clickable/editable links (link inspector), node panel (links in/out + branch order), structure layer (central nodes, collapse, 5-direction Arrange), 8 board modes + 6 board themes |
+| v0.7.0 | **Board origin** — a fixed (0, 0) with a marker on the canvas; Arrange now anchors the central node on the origin (deterministic, cannot drift); Origin button; Show-the-origin setting. Fixed the v0.6.0 double-origin drift bug |
 
-## Honest limits (v0.6.0)
+## Honest limits (v0.7.0)
 
 - Arrange is a **tree** layout: dense graphs with many cross-links are tidied along their trees and the
   extra links stay where they are (no force-directed pass yet).
+- Arrange moves the map to the **origin**; if you had deliberately parked a map somewhere else in board
+  space, use Undo or drag it back (the origin is the intended home for a structured map).
+- Z (the third axis) is **reserved, not built**: every node is on layer 0 and Z only decides drawing
+  order. No raise/lower controls yet.
 - The minimap is not interactive (deliberate — ordered left alone).
 - No multi-select, no rubber-band selection, no node resize, and **no node edit after creation**.
 - Collapse hides a subtree from the board and the list; a badge, the node panel's Expand or *Expand

@@ -167,7 +167,7 @@
     <!-- v0.6.0 · structure actions -->
     <string name="tool_arrange">Arrange</string>
     <string name="arrange_now">Arrange now</string>
-    <string name="arrange_done">Arranged %1$d node(s)</string>
+    <string name="arrange_done">%1$s is on the origin · %2$d node(s) arranged</string>
     <string name="arrange_nothing">Nothing to arrange — no nodes yet</string>
     <string name="collapse_all">Collapse all</string>
     <string name="expand_all">Expand all</string>
@@ -244,4 +244,13 @@
     <string name="help_board_mode_1">The settings button at the top-left opens the project settings.</string>
     <string name="help_board_mode_2">Eight board surfaces: plain, grid, dots, graph paper, ruled lines, isometric, hex and blueprint.</string>
     <string name="help_board_mode_3">Six board themes — app theme, paper, warm, mint, charcoal and blueprint.</string>
+
+    <!-- v0.7.0 · the origin -->
+    <string name="tool_origin">Origin</string>
+    <string name="origin_here">Origin — the fixed zero point of this board</string>
+    <string name="settings_origin">Show the origin</string>
+    <string name="settings_origin_detail">The dot in a ring is board (0, 0). Arrange puts the central node there.</string>
+    <string name="help_origin_1">The board has one fixed point, its origin (0, 0) — the dot in a ring.</string>
+    <string name="help_origin_2">Arrange moves the central node onto the origin and builds the map from there, so arranging twice always gives the same result.</string>
+    <string name="help_origin_3">The Origin button brings the view back to it, wherever you have travelled.</string>
 </resources>

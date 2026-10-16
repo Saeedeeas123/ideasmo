@@ -12,8 +12,9 @@ import kotlin.math.hypot
  * why [StructureLayout] deliberately depends on nothing but Kotlin.
  *
  * What they protect: the branch order a user sets is the order the map is drawn in; a collapsed
- * branch is not laid out; a cycle cannot hang the arranger; and nodes that belong to no tree are
- * left exactly where the user put them.
+ * branch is not laid out; a cycle cannot hang the arranger; nodes that belong to no tree are left
+ * exactly where the user put them; and Arrange anchored on the board origin cannot drift, so
+ * arranging twice always produces the same map.
  */
 class StructureLayoutTest {
 
@@ -267,5 +268,107 @@ class StructureLayoutTest {
         assertEquals(0f, positions.getValue("r1").x, 0.01f)
         assertEquals(0f, positions.getValue("r2").x, 0.01f)
         assertTrue(positions.getValue("r1").y != positions.getValue("r2").y)
+    }
+
+    // ---- the board origin (v0.7.0) -----------------------------------------
+
+    @Test
+    fun arrangePutsTheCentreOfTheCentralNodeOnTheOrigin() {
+        val nodes = listOf(
+            node("root", x = 900f, y = -400f),
+            node("a", x = 1234f, y = 77f),
+            node("b", x = -800f, y = 2500f),
+        )
+        val links = listOf(link("l1", "root", "a"), link("l2", "root", "b"))
+
+        val positions = StructureLayout.arrange(
+            nodes = nodes,
+            links = links,
+            preferredRoots = listOf("root"),
+            direction = LayoutDirection.Right,
+            spacing = LayoutSpacing.Normal,
+            anchorRootAtOrigin = true,
+        )
+
+        val root = positions.getValue("root")
+        assertEquals(BoardSpace.ORIGIN_X, root.x + StructureLayout.NODE_HALF_W, 0.01f)
+        assertEquals(BoardSpace.ORIGIN_Y, root.y + StructureLayout.NODE_HALF_H, 0.01f)
+        // And the map grows out of the origin, not out of wherever the nodes happened to be.
+        assertTrue(positions.getValue("a").x > root.x)
+        assertTrue(positions.getValue("b").x > root.x)
+    }
+
+    @Test
+    fun arrangingTwiceCannotDrift() {
+        // This is the whole point of anchoring: the second Arrange reproduces the first exactly,
+        // no matter where the nodes were dragged in between.
+        val nodes = listOf(node("root"), node("a"), node("b"), node("c"))
+        val links = listOf(
+            link("l1", "root", "a", 0),
+            link("l2", "root", "b", 1),
+            link("l3", "a", "c", 0),
+        )
+        val first = StructureLayout.arrange(
+            nodes = nodes,
+            links = links,
+            preferredRoots = listOf("root"),
+            anchorRootAtOrigin = true,
+        )
+        val dragged = nodes.map { it.copy(x = it.x + 5000f, y = it.y - 3000f) }
+        val second = StructureLayout.arrange(
+            nodes = dragged,
+            links = links,
+            preferredRoots = listOf("root"),
+            anchorRootAtOrigin = true,
+        )
+
+        assertEquals(first.size, second.size)
+        first.forEach { (id, point) ->
+            val again = second.getValue(id)
+            assertEquals(point.x, again.x, 0.001f)
+            assertEquals(point.y, again.y, 0.001f)
+        }
+    }
+
+    @Test
+    fun anchoringAlsoWorksForRadial() {
+        val nodes = listOf(node("root", x = 4000f, y = 4000f), node("a"), node("b"))
+        val links = listOf(link("l1", "root", "a"), link("l2", "root", "b"))
+
+        val positions = StructureLayout.arrange(
+            nodes = nodes,
+            links = links,
+            preferredRoots = listOf("root"),
+            direction = LayoutDirection.Radial,
+            anchorRootAtOrigin = true,
+        )
+
+        val root = positions.getValue("root")
+        assertEquals(BoardSpace.ORIGIN_X, root.x + StructureLayout.NODE_HALF_W, 0.01f)
+        assertEquals(BoardSpace.ORIGIN_Y, root.y + StructureLayout.NODE_HALF_H, 0.01f)
+    }
+
+    @Test
+    fun withoutAnchoringTheMapGrowsFromTheGivenPoint() {
+        // Regression test for a real v0.6.0 bug: the layout cursor used to be seeded with originY
+        // and then originY was added again by the transform, so every Arrange displaced the whole
+        // map by the origin. With the origin at 0 that was invisible; with a dragged board it was
+        // the drift that made Arrange feel like it did not work.
+        val nodes = listOf(node("root", x = 800f, y = 600f), node("a"))
+        val links = listOf(link("l1", "root", "a"))
+
+        val positions = StructureLayout.arrange(
+            nodes = nodes,
+            links = links,
+            preferredRoots = listOf("root"),
+            originX = 800f,
+            originY = 600f,
+        )
+
+        assertEquals(800f, positions.getValue("root").x, 0.01f)
+        assertEquals(600f, positions.getValue("root").y, 0.01f)
+        // The child sits one level to the right, on the same row as its parent.
+        assertEquals(800f + StructureLayout.NODE_W + LayoutSpacing.Normal.levelGap, positions.getValue("a").x, 0.01f)
+        assertEquals(600f, positions.getValue("a").y, 0.01f)
     }
 }
