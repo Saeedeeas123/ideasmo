@@ -40,10 +40,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.saeed.ideasmo.R
@@ -81,6 +84,7 @@ internal enum class NodeTool { None, Resize, Colour, Shape }
 @Composable
 internal fun NodeActionBars(
     node: IdeaNode,
+    zoom: Float,
     centreX: Float,
     centreY: Float,
     nodeWidthPx: Float,
@@ -96,11 +100,23 @@ internal fun NodeActionBars(
     onResizeDone: () -> Unit,
 ) {
     val density = LocalDensity.current
-    val itemW = with(density) { ITEM_W.toPx() }
-    val itemH = with(density) { ITEM_H.toPx() }
-    val smallW = with(density) { SMALL_W.toPx() }
-    val barPad = with(density) { BAR_PAD.toPx() }
-    val gap = with(density) { BAR_GAP.toPx() }
+    // THE SQUARE IS RELATIVE TO ITS NODE (Saeed's report: "when I zoom out they don't get smaller…
+    // they are not relative to the node yet"). The bars used to keep their full 100% size at every
+    // zoom, so at 25% the square was ~478 dp wide on a 412 dp screen — wider than the screen — and
+    // the right-edge clamp pushed it left until the LEFT BAR was gone. Two things fix that:
+    //   * the whole square scales with the board, floored at [SQUARE_MIN_SCALE] so the buttons stay
+    //     usable at the lowest zoom, and
+    //   * the viewport clamp below is a real clamp, so the four bars keep their shape.
+    // Below [LABEL_MIN_SCALE] the labels are dropped: at that size they would be unreadable, and an
+    // icon-only bar is both cleaner and smaller.
+    val square = zoom.coerceIn(SQUARE_MIN_SCALE, 1f)
+    val labels = square >= LABEL_MIN_SCALE
+    val naturalH = if (labels) ITEM_H else ITEM_H_ICON
+    val itemW = with(density) { ITEM_W.toPx() } * square
+    val itemH = with(density) { naturalH.toPx() } * square
+    val smallW = with(density) { SMALL_W.toPx() } * square
+    val barPad = with(density) { BAR_PAD.toPx() } * square
+    val gap = with(density) { BAR_GAP.toPx() } * square
     val margin = with(density) { SCREEN_MARGIN.toPx() }
 
     val top = NodeActionCatalog.byGroup(NodeActionGroup.Content)
@@ -124,34 +140,33 @@ internal fun NodeActionBars(
     val halfH = max(nodeHeightPx / 2f, max(leftH, rightH) / 2f) + gap
 
     // Ideal positions, all measured from the node's centre.
-    var topX = centreX - topW / 2f
-    var topY = centreY - halfH - barH
-    var bottomX = centreX - bottomW / 2f
-    var bottomY = centreY + halfH
-    var leftX = centreX - halfW - sideW
-    var leftY = centreY - leftH / 2f
-    var rightX = centreX + halfW
-    var rightY = centreY - rightH / 2f
+    val topX = centreX - topW / 2f
+    val topY = centreY - halfH - barH
+    val bottomX = centreX - bottomW / 2f
+    val bottomY = centreY + halfH
+    val leftX = centreX - halfW - sideW
+    val leftY = centreY - leftH / 2f
+    val rightX = centreX + halfW
+    val rightY = centreY - rightH / 2f
 
-    // ONE shift for the whole square: the shape is preserved and the bars stay with their node.
+    // ONE shift for the whole square — and it is a CLAMP, not two independent pushes. v0.9.0 satisfied
+    // the left margin and then broke it again while clamping the right edge, which is exactly how the
+    // left bar was lost. When the square cannot fit at all it is centred on the viewport instead, so
+    // the four bars keep their shape around the node at any zoom.
     val squareLeft = minOf(leftX, topX, bottomX)
     val squareRight = maxOf(rightX + sideW, topX + topW, bottomX + bottomW)
     val squareTop = minOf(topY, leftY, rightY)
     val squareBottom = maxOf(bottomY + barH, leftY + leftH, rightY + rightH)
-    var dx = 0f
-    var dy = 0f
-    if (squareLeft < margin) dx = margin - squareLeft
-    if (squareRight + dx > viewportWidth - margin) dx = (viewportWidth - margin) - squareRight
-    if (squareTop < margin) dy = margin - squareTop
-    if (squareBottom + dy > viewportHeight - margin) dy = (viewportHeight - margin) - squareBottom
-    topX += dx
-    topY += dy
-    bottomX += dx
-    bottomY += dy
-    leftX += dx
-    leftY += dy
-    rightX += dx
-    rightY += dy
+    val minDx = margin - squareLeft
+    val maxDx = (viewportWidth - margin) - squareRight
+    val minDy = margin - squareTop
+    val maxDy = (viewportHeight - margin) - squareBottom
+    val dx = if (minDx <= maxDx) 0f.coerceIn(minDx, maxDx) else viewportWidth / 2f - (squareLeft + squareRight) / 2f
+    val dy = if (minDy <= maxDy) 0f.coerceIn(minDy, maxDy) else viewportHeight / 2f - (squareTop + squareBottom) / 2f
+    val topAt = IntOffset((topX + dx).roundToInt(), (topY + dy).roundToInt())
+    val leftAt = IntOffset((leftX + dx).roundToInt(), (leftY + dy).roundToInt())
+    val rightAt = IntOffset((rightX + dx).roundToInt(), (rightY + dy).roundToInt())
+    val bottomAt = IntOffset((bottomX + dx).roundToInt(), (bottomY + dy).roundToInt())
 
     Box(
         modifier = Modifier.size(
@@ -159,20 +174,22 @@ internal fun NodeActionBars(
             height = with(density) { viewportHeight.toDp() },
         ),
     ) {
-        NodeBar(modifier = Modifier.offset { IntOffset(topX.roundToInt(), topY.roundToInt()) }) {
+        NodeBar(modifier = Modifier.offset { topAt }.squareScale(square)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 top.forEach { action ->
                     BarButton(
                         action = action,
                         enabled = true,
                         selected = false,
+                        labels = labels,
+                        naturalH = naturalH,
                         onClick = { onAction(action.key) },
                     )
                 }
             }
         }
 
-        NodeBar(modifier = Modifier.offset { IntOffset(leftX.roundToInt(), leftY.roundToInt()) }) {
+        NodeBar(modifier = Modifier.offset { leftAt }.squareScale(square)) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 left.forEach { action ->
                     BarButton(
@@ -180,19 +197,23 @@ internal fun NodeActionBars(
                         // Paste is honest about the empty clipboard instead of failing silently.
                         enabled = action.key != NodeActionCatalog.PASTE || clipboardHasContent,
                         selected = false,
+                        labels = labels,
+                        naturalH = naturalH,
                         onClick = { onAction(action.key) },
                     )
                 }
             }
         }
 
-        NodeBar(modifier = Modifier.offset { IntOffset(rightX.roundToInt(), rightY.roundToInt()) }) {
+        NodeBar(modifier = Modifier.offset { rightAt }.squareScale(square)) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 right.forEach { action ->
                     BarButton(
                         action = action,
                         enabled = true,
                         selected = false,
+                        labels = labels,
+                        naturalH = naturalH,
                         onClick = { onAction(action.key) },
                     )
                 }
@@ -200,7 +221,7 @@ internal fun NodeActionBars(
         }
 
         // The bottom bar: either the three style actions, or the tool they opened.
-        NodeBar(modifier = Modifier.offset { IntOffset(bottomX.roundToInt(), bottomY.roundToInt()) }) {
+        NodeBar(modifier = Modifier.offset { bottomAt }.squareScale(square)) {
             when (tool) {
                 NodeTool.None -> Row(verticalAlignment = Alignment.CenterVertically) {
                     bottom.forEach { action ->
@@ -208,6 +229,8 @@ internal fun NodeActionBars(
                             action = action,
                             enabled = true,
                             selected = false,
+                            labels = labels,
+                            naturalH = naturalH,
                             onClick = { onAction(action.key) },
                         )
                     }
@@ -217,6 +240,7 @@ internal fun NodeActionBars(
                     SwatchButton(
                         colour = MaterialTheme.colorScheme.surfaceVariant,
                         selected = node.color == null,
+                        naturalH = naturalH,
                         onClick = { onColor(null) },
                     )
                     NodeStyle.COLORS.forEach { option ->
@@ -228,10 +252,11 @@ internal fun NodeActionBars(
                                 MaterialTheme.colorScheme.outline
                             },
                             selected = node.color == option.key,
+                            naturalH = naturalH,
                             onClick = { onColor(option.key) },
                         )
                     }
-                    ToolClose(onClick = { onTool(NodeTool.None) })
+                    ToolClose(naturalH = naturalH, onClick = { onTool(NodeTool.None) })
                 }
 
                 NodeTool.Shape -> Row(verticalAlignment = Alignment.CenterVertically) {
@@ -240,10 +265,12 @@ internal fun NodeActionBars(
                             shapeKey = option.key,
                             label = option.label,
                             selected = node.shape == option.key,
+                            labels = labels,
+                            naturalH = naturalH,
                             onClick = { onShape(option.key) },
                         )
                     }
-                    ToolClose(onClick = { onTool(NodeTool.None) })
+                    ToolClose(naturalH = naturalH, onClick = { onTool(NodeTool.None) })
                 }
 
                 NodeTool.Resize -> Row(
@@ -274,6 +301,25 @@ internal fun NodeActionBars(
     }
 }
 
+/**
+ * Shrinks a whole bar with the board so the square stays in proportion to its node.
+ *
+ * The bar keeps its natural layout size and is scaled around its own top-left corner, which is the
+ * corner the geometry above reserved for it — so the rendered bar lands exactly in its slot and the
+ * touch area follows the pixels (Compose maps pointer input through the layer, the same way the node
+ * cards stay tappable inside the board's own scaled layer).
+ */
+private fun Modifier.squareScale(scale: Float): Modifier =
+    if (scale >= 1f) {
+        this
+    } else {
+        graphicsLayer {
+            scaleX = scale
+            scaleY = scale
+            transformOrigin = TransformOrigin(0f, 0f)
+        }
+    }
+
 /** One bar of the square: a rounded tonal surface, no shadow, a 1 dp outline. */
 @Composable
 private fun NodeBar(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
@@ -290,17 +336,19 @@ private fun NodeBar(modifier: Modifier = Modifier, content: @Composable () -> Un
     }
 }
 
-/** One action: icon above its label, 62×60 dp — always a full touch target. */
+/** One action: icon above its label, 62×60 dp — always a full touch target at 100% zoom. */
 @Composable
 private fun BarButton(
     action: NodeAction,
     enabled: Boolean,
     selected: Boolean,
+    labels: Boolean,
+    naturalH: Dp,
     onClick: () -> Unit,
 ) {
     Column(
         modifier = Modifier
-            .size(ITEM_W, ITEM_H)
+            .size(ITEM_W, naturalH)
             .clip(RoundedCornerShape(Radius.small))
             .clickable(enabled = enabled, onClick = onClick)
             .padding(vertical = Spacing.xs),
@@ -317,27 +365,34 @@ private fun BarButton(
             },
             modifier = Modifier.size(22.dp),
         )
-        Spacer(Modifier.height(2.dp))
-        Text(
-            text = stringResource(actionLabelRes(action.key)),
-            style = MaterialTheme.typography.labelSmall,
-            color = when {
-                !enabled -> MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
-                selected -> MaterialTheme.colorScheme.primary
-                else -> MaterialTheme.colorScheme.onSurfaceVariant
-            },
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        if (labels) {
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = stringResource(actionLabelRes(action.key)),
+                style = MaterialTheme.typography.labelSmall,
+                color = when {
+                    !enabled -> MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                    selected -> MaterialTheme.colorScheme.primary
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
 /** A colour swatch inside the palette strip. */
 @Composable
-private fun SwatchButton(colour: androidx.compose.ui.graphics.Color, selected: Boolean, onClick: () -> Unit) {
+private fun SwatchButton(
+    colour: androidx.compose.ui.graphics.Color,
+    selected: Boolean,
+    naturalH: Dp,
+    onClick: () -> Unit,
+) {
     Box(
         modifier = Modifier
-            .size(SMALL_W, ITEM_H)
+            .size(SMALL_W, naturalH)
             .clip(RoundedCornerShape(Radius.small))
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
@@ -360,10 +415,17 @@ private fun SwatchButton(colour: androidx.compose.ui.graphics.Color, selected: B
 
 /** A shape option inside the shape strip: a small preview of the shape. */
 @Composable
-private fun ShapeButton(shapeKey: String, label: String, selected: Boolean, onClick: () -> Unit) {
+private fun ShapeButton(
+    shapeKey: String,
+    label: String,
+    selected: Boolean,
+    labels: Boolean,
+    naturalH: Dp,
+    onClick: () -> Unit,
+) {
     Column(
         modifier = Modifier
-            .size(ITEM_W, ITEM_H)
+            .size(ITEM_W, naturalH)
             .clip(RoundedCornerShape(Radius.small))
             .clickable(onClick = onClick)
             .padding(vertical = Spacing.xs),
@@ -382,27 +444,29 @@ private fun ShapeButton(shapeKey: String, label: String, selected: Boolean, onCl
                     },
                 ),
         )
-        Spacer(Modifier.height(2.dp))
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = if (selected) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        if (labels) {
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = if (selected) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
 /** Leaves a tool and puts the style actions back in the bottom bar. */
 @Composable
-private fun ToolClose(onClick: () -> Unit) {
+private fun ToolClose(naturalH: Dp, onClick: () -> Unit) {
     Box(
         modifier = Modifier
-            .size(SMALL_W, ITEM_H)
+            .size(SMALL_W, naturalH)
             .clip(RoundedCornerShape(Radius.small))
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
@@ -419,10 +483,21 @@ private fun ToolClose(onClick: () -> Unit) {
 /** Item size, in dp. Fixed so the square has a predictable footprint on any screen. */
 private val ITEM_W = 62.dp
 private val ITEM_H = 60.dp
+private val ITEM_H_ICON = 44.dp
 private val SMALL_W = 44.dp
 private val BAR_PAD = 4.dp
 private val BAR_GAP = 10.dp
 private val SCREEN_MARGIN = 6.dp
+
+/**
+ * How small the square may get. It scales with the board so it stays in proportion to its node, but
+ * it stops here: below roughly 45% the buttons would be too small to hit, and the alternative — the
+ * square swallowing the node it belongs to — is what Saeed reported.
+ */
+private const val SQUARE_MIN_SCALE = 0.45f
+
+/** Below this the labels are dropped and the bars become icon-only, which keeps them legible. */
+private const val LABEL_MIN_SCALE = 0.7f
 
 /** The label shown on the button — the catalogue's own labels live in strings.xml by key. */
 private fun actionLabelRes(key: String): Int = when (key) {

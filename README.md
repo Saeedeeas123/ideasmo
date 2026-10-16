@@ -3,7 +3,7 @@
 An idea processor for Android: capture an idea, give it structure, keep it in one place.
 Personal project of Saeed (`com.saeed.ideasmo`), built entirely on-device.
 
-**Current version: v0.9.0** (versionCode 9)
+**Current version: v0.10.0** (versionCode 10)
 
 ## What it is
 
@@ -79,7 +79,9 @@ DESIGN.md                    the design contract (tokens, screens, decisions, ho
 | v0.8.0 | **Node action square** (four bars around the selected node) with 16 node actions from a catalog: rename, image, connect, notes, clipboard (copy/cut/paste), delete, child/sibling/duplicate, **reattach** (re-parent with cycle protection), resize/colour/shape — plus per-node style honoured by the layout, an app node clipboard, and a Details view that copies a node as machine-readable data |
 | v0.9.0 | **Back is a step** (dialog → panel → mode → tool → form → selection → leave); the action square is **relative to its node** (the whole square shifts as one unit); **tools inside the square** — free-form resize with handles on the card, an in-place colour palette and shape picker; per-node `w`/`h` in board units; **the toast is gone** (inline NoticeBar + an always-visible Undo button with a real undo stack); Copy/Cut/Duplicate ask whether **links / sub-links** travel; **multi-select + rubber band + group bar** (drag moves the whole selection); the node panel docks as a **rectangle on the right**; the ⊖/⊕ **collapse** control lives on the card |
 
-## Honest limits (v0.9.0)
+| v0.10.0 | **The square scales with the board** (it is relative to its node at last) and can never lose a bar again — the viewport clamp is one real clamp, and at low zoom the bars drop their labels and become icon-only; **resize handles shrink with the card** and are capped by it (22 dp at 100 %, no more blobs beside a small card); **zoom out to 5 %** (5 % steps below a quarter); the docked node panel is **40 % of the screen** and tinted so it is actually distinguishable from the board; **Arrange moved into the node's own properties** — pick Left/Right/Up/Down for the selected node and only its branch is laid out, with the node itself staying put (the board's Arrange button is gone); the layout reserves the size each card **really measures**, so branches cannot overlap |
+
+## Honest limits (v0.10.0)
 
 - **Group** and **Schema** from the reference app are still not built: Schema is deferred on your
   instruction, and Group is waiting on one answer — is a group a *frame that holds* the selected
@@ -87,13 +89,22 @@ DESIGN.md                    the design contract (tokens, screens, decisions, ho
 - The rubber band needs a **long press** on empty board before dragging; nothing on screen says so
   yet except the Help entry (the board's own hint text mentions it only when the board is empty).
 - Resize handles are drawn on the card and can be partly covered by the bars when a node is very
-  small; the corner handles stay reachable.
+  small; the corner handles stay reachable. Their **visible** circle shrinks with the card (capped at a
+  third of it) while an invisible touch margin keeps them draggable.
 - Undo is **memory-only** and bounded to the last 12 steps; closing the app clears it.
-- A node's height is still an estimate for the auto-layout (the card grows with its content), so a
-  very long note can make a card taller than the space Arrange reserved.
+- The auto-layout now reserves the size each card **really measures** (the board reports it while it
+  draws), so a card that grows with its content no longer makes siblings overlap — but the measurement
+  only exists for cards the board has already drawn on this run.
 - The clipboard is the **app's own** (nodes, not text) and lives in memory only.
-- A node's height is still an estimate for the layout (the card grows with its content), so a very
-  long note can make a card slightly taller than the space the auto-layout reserved.
+- **Arrange a branch is a command, not a stored property**: the chosen direction is not saved on the
+  node, so the project-level *Arrange now* (in the project settings) still lays the whole map out in
+  the project direction. Storing a per-branch direction is the open half of the deferred **Schema**
+  question.
+- The board's Arrange button is gone on purpose; the whole-map Arrange now lives only in the project
+  settings.
+- Below about **70 % zoom** the action square drops its labels and shows icons only (at that size the
+  labels would be unreadable); below 45 % it stops shrinking so the buttons stay usable, which means
+  at 5 % zoom the square is no longer exactly proportional to a very small node.
 - Arrange is a **tree** layout: dense graphs with many cross-links are tidied along their trees and the
   extra links stay where they are (no force-directed pass yet).
 - Arrange moves the map to the **origin**; if you had deliberately parked a map somewhere else in board

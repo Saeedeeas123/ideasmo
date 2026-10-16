@@ -483,7 +483,6 @@ no dependency where a Compose `Canvas` would do.
   check is Saeed installing the APK.
 
 ### v0.8.0 sign-off (2026-10-15)
-
 - Implemented: the node action square (four bars around the selected node, generated from
   `NodeActionCatalog`) with 16 node actions — Text, Image, Connect, Notes, More, Copy, Cut, Paste,
   Delete, Child, Sibling, Duplicate, Reattach, Resize, Colour, Shape — plus per-node style
@@ -501,3 +500,45 @@ no dependency where a Compose `Canvas` would do.
   biggest new visual surface in the app, so the device check matters more than usual here: does the
   square fit at 100 % zoom, does it stay reachable at the edges of a node near the screen border, and
   does it get in the way while dragging.
+
+### v0.10.0 sign-off (2026-10-16)
+- Implemented, item by item from Saeed's report on v0.9.0 (with the two screenshots):
+  1. **The action square is relative to its node** and can no longer lose a bar. It scales with the
+     board (`SQUARE_MIN_SCALE` = 0.45, capped at 1), and the viewport adjustment is now a **single
+     clamp** (`minDx..maxDx`) instead of two independent pushes that could undo each other — which is
+     exactly how the left bar disappeared at 25 % zoom, where the old square was ~478 dp wide on a
+     412 dp screen. If the square still cannot fit, it is centred on the viewport so it keeps its shape.
+     Below `LABEL_MIN_SCALE` (0.7) the bars drop their labels and become icon-only (44 dp natural
+     height instead of 60), which keeps them legible instead of turning into grey mush.
+  2. **Resize handles**: 22 dp at 100 % zoom instead of 30 dp, they shrink with the card
+     (`HANDLE_MIN` = 12 dp floor), they are capped at a third of the card so the eight of them cannot
+     collapse into one blob, their touch box is capped at half the card so they cannot steal each
+     other's drags, and the dashed outline + the ring width follow the zoom too.
+  3. **Zoom out to 5 %** (`MIN_SCALE`), with `zoomStepAt()`: 25 % steps above a quarter (the familiar
+     behaviour) and 5 % steps below it, otherwise 5 % would be unreachable.
+  4. **The docked node panel is 40 % of the screen** (`PANEL_WIDTH_FRACTION`). v0.9.0 computed
+     `(viewportW * 0.82).coerceAtMost(340f)` and then treated the PIXELS as dp, so the panel came out
+     ~130 dp wide and its content about 98 dp — every line broke into fragments and the panel was hard
+     to tell apart from the board. Now: 40 % of the real width, `surfaceVariant` + outline + shadow so
+     it reads as a panel, tighter content padding, and the rows rebuilt to fit a narrow panel
+     (two-line branch rows, 30 dp swatches, scrollable chip rows).
+  5. **Arrange moved into the node's own properties** (`StructureLayout.arrangeBranch`): Left / Right /
+     Up / Down chips in the node panel lay out **only that node's subtree**, and the selected node
+     **stays exactly where it is**. The board's Arrange button is removed. The whole-map Arrange (which
+     still anchors on the origin) remains in the project settings.
+- Also fixed, because it is the other half of "arrange does not arrange properly":
+  `StructureLayout.spaceOf()` — the auto-layout reserves the size each card **really measures**. The
+  board reports it from `onSizeChanged` (`NodeStore.noteRenderedSize`, memory only), and the engine
+  takes it as an explicit `measured` map so it stays pure and JVM-testable. And in `linear()`, Left/Up
+  now offset back towards the parent by the **node's own size**, not by the `NODE_W` / `NODE_H`
+  constants (a resized card used to straddle the level line).
+- Verified how: `:app:testDebugUnitTest` **36/36 green, 0 failures, 0 errors** — StructureLayoutTest is
+  now 22 (six new: the branch arrange keeps its node in place, Left/Right/Up/Down each send the subtree
+  the right way, a leaf arranges nothing, a collapsed subtree is skipped, the measured card size is
+  reserved, and Left/Up use the card's own size), plus NodeCatalogTest 8 and FragmentBuilderTest 6.
+  `:app:assembleDebug` **BUILD SUCCESSFUL in 2m 25s with 0 warnings**.
+- Not verified: the same standing gap as every build before it — **no device verification**. The look
+  and the touch feel of the scaled square, the smaller handles, the 40 % panel and the 5 % zoom are
+  unverified until Saeed installs the APK. The specific open questions: is a 28 dp icon-only button
+  tappable enough at 25 % zoom, and does 5 % zoom reveal the whole map usefully or does the board
+  pattern get too dense.

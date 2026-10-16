@@ -170,7 +170,6 @@
     <string name="settings_minimap_detail">Show the minimap while you move around the board</string>
 
     <!-- v0.6.0 · structure actions -->
-    <string name="tool_arrange">Arrange</string>
     <string name="arrange_now">Arrange now</string>
     <string name="arrange_done">%1$s is on the origin · %2$d node(s) arranged</string>
     <string name="arrange_nothing">Nothing to arrange — no nodes yet</string>
@@ -223,7 +222,17 @@
     <string name="move_right">Move right</string>
     <string name="move_up">Move up</string>
     <string name="move_down">Move down</string>
-    <string name="node_arrange">Arrange the whole map</string>
+    <!-- v0.10.0 · arranging ONE branch from the node's own properties -->
+    <string name="node_arrange_branch">Arrange the branch</string>
+    <string name="node_arrange_hint">Lays out this node and everything below it in the direction you pick. This node itself stays where it is.</string>
+    <string name="arrange_left">Left</string>
+    <string name="arrange_right">Right</string>
+    <string name="arrange_up">Up</string>
+    <string name="arrange_down">Down</string>
+    <string name="arrange_branch_done">%1$d node(s) arranged to the %2$s</string>
+    <string name="arrange_branch_nothing">Nothing below %1$s to arrange</string>
+    <string name="undo_arrange_branch">the branch of %1$s to the %2$s</string>
+    <string name="branch_position">Branch %1$d of %2$d</string>
     <string name="node_add_link">Add a link</string>
     <string name="node_hidden_badge">+%1$d hidden</string>
     <string name="central_set">%1$s is now a central node</string>

@@ -418,4 +418,140 @@ class StructureLayoutTest {
         assertEquals(BoardSpace.ORIGIN_X, root.x + StructureLayout.widthOf(nodes[0]) / 2f, 0.01f)
         assertEquals(BoardSpace.ORIGIN_Y, root.y + StructureLayout.heightOf(nodes[0]) / 2f, 0.01f)
     }
+
+    // ---- arranging ONE branch from the node's own properties (v0.10.0) -----
+
+    @Test
+    fun arrangeBranchKeepsTheSelectedNodeExactlyWhereItWas() {
+        // Saeed's rule: the user selects a node, picks a direction, and the branch grows away from
+        // that node. The node itself must not move — unlike the whole-map Arrange, which parks the
+        // map on the board origin.
+        val nodes = listOf(
+            node("root", x = 1234f, y = -777f),
+            node("a", x = 10f),
+            node("b", x = 10f),
+            node("far", x = 5000f, y = 5000f),
+        )
+        val links = listOf(link("l1", "root", "a", 0), link("l2", "root", "b", 1))
+
+        val positions = StructureLayout.arrangeBranch(
+            nodes = nodes,
+            links = links,
+            rootId = "root",
+            direction = LayoutDirection.Down,
+        )
+
+        assertEquals(1234f, positions.getValue("root").x, 0.01f)
+        assertEquals(-777f, positions.getValue("root").y, 0.01f)
+        assertFalse(
+            "a node that is not below the selected node must not move",
+            positions.containsKey("far"),
+        )
+    }
+
+    @Test
+    fun arrangeBranchSendsTheSubtreeToTheChosenSide() {
+        val nodes = listOf(node("root"), node("a"), node("b"), node("c"))
+        val links = listOf(
+            link("l1", "root", "a", 0),
+            link("l2", "root", "b", 1),
+            link("l3", "a", "c", 0),
+        )
+
+        val right = StructureLayout.arrangeBranch(nodes, links, "root", LayoutDirection.Right)
+        val left = StructureLayout.arrangeBranch(nodes, links, "root", LayoutDirection.Left)
+        val up = StructureLayout.arrangeBranch(nodes, links, "root", LayoutDirection.Up)
+        val down = StructureLayout.arrangeBranch(nodes, links, "root", LayoutDirection.Down)
+
+        assertTrue("Right sends the children right", right.getValue("a").x > right.getValue("root").x)
+        assertTrue("Left sends the children left", left.getValue("a").x < left.getValue("root").x)
+        assertTrue("Up sends the children up", up.getValue("a").y < up.getValue("root").y)
+        assertTrue("Down sends the children down", down.getValue("a").y > down.getValue("root").y)
+
+        // And the level below follows the same direction.
+        assertTrue(right.getValue("c").x > right.getValue("a").x)
+        assertTrue(left.getValue("c").x < left.getValue("a").x)
+        assertTrue(up.getValue("c").y < up.getValue("a").y)
+        assertTrue(down.getValue("c").y > down.getValue("a").y)
+    }
+
+    @Test
+    fun arrangeBranchOfANodeWithNothingBelowItDoesNothing() {
+        val nodes = listOf(node("root"), node("leaf"))
+        val links = listOf(link("l1", "root", "leaf"))
+
+        val positions = StructureLayout.arrangeBranch(nodes, links, "leaf", LayoutDirection.Right)
+
+        assertTrue("a leaf cannot be arranged", positions.isEmpty())
+    }
+
+    @Test
+    fun arrangeBranchSkipsACollapsedSubtree() {
+        val nodes = listOf(node("root"), node("child", collapsed = true), node("grandchild"))
+        val links = listOf(link("l1", "root", "child"), link("l2", "child", "grandchild"))
+
+        val positions = StructureLayout.arrangeBranch(nodes, links, "root", LayoutDirection.Right)
+
+        assertTrue(positions.containsKey("child"))
+        assertFalse(positions.containsKey("grandchild"))
+    }
+
+    @Test
+    fun theLayoutReservesTheSizeTheCardReallyRenders() {
+        // A card grows with its content — a picture, a long name — so the height stored on the node
+        // can be smaller than what is on screen. Laying siblings out by the stored height is what let
+        // branches overlap on Saeed's board; the measured size has to win.
+        val nodes = listOf(node("root"), node("a"), node("b"))
+        val links = listOf(link("l1", "root", "a", 0), link("l2", "root", "b", 1))
+        val measured = mapOf(
+            "a" to LayoutSize(StructureLayout.NODE_W, 260f),
+            "b" to LayoutSize(StructureLayout.NODE_W, 260f),
+        )
+
+        val positions = StructureLayout.arrangeBranch(
+            nodes = nodes,
+            links = links,
+            rootId = "root",
+            direction = LayoutDirection.Right,
+            spacing = LayoutSpacing.Normal,
+            measured = measured,
+        )
+
+        val distance = positions.getValue("b").y - positions.getValue("a").y
+        assertTrue(
+            "siblings must clear the card that really rendered, not the stored size",
+            distance >= 260f,
+        )
+    }
+
+    @Test
+    fun leftAndUpUseTheCardsOwnSizeNotTheDefault() {
+        // Regression test: the offset back towards the parent used the NODE_W / NODE_H constants, so
+        // a resized card straddled the level line instead of starting on it.
+        val big = node("root").copy(w = 400f, h = 200f)
+        val nodes = listOf(big, node("a"))
+        val links = listOf(link("l1", "root", "a"))
+
+        val left = StructureLayout.arrange(
+            nodes = nodes,
+            links = links,
+            preferredRoots = listOf("root"),
+            direction = LayoutDirection.Left,
+            spacing = LayoutSpacing.Normal,
+            originX = 0f,
+            originY = 0f,
+        )
+        val up = StructureLayout.arrange(
+            nodes = nodes,
+            links = links,
+            preferredRoots = listOf("root"),
+            direction = LayoutDirection.Up,
+            spacing = LayoutSpacing.Normal,
+            originX = 0f,
+            originY = 0f,
+        )
+
+        assertEquals(0f, left.getValue("root").x + StructureLayout.widthOf(big), 0.01f)
+        assertEquals(0f, up.getValue("root").y + StructureLayout.heightOf(big), 0.01f)
+    }
 }

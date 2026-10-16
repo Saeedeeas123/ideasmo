@@ -56,7 +56,20 @@ internal fun NodeResizeOverlay(
     onCommit: () -> Unit,
 ) {
     val density = LocalDensity.current
-    val handlePx = with(density) { HANDLE.toPx() }
+    // The handles shrink with the card and are capped by it (Saeed's report: at 25% zoom eight 30 dp
+    // circles collapsed into one blob lying beside a small card instead of sitting on its corners).
+    // They also stop shrinking at a size a finger can still hold, and each one keeps an invisible
+    // touch margin so the visible circle can be the small one he asked for.
+    val basePx = with(density) { HANDLE.toPx() }
+    val floorPx = with(density) { HANDLE_MIN.toPx() }
+    val padPx = with(density) { HANDLE_TOUCH_PAD.toPx() }
+    val handlePx = (basePx * scale)
+        .coerceIn(floorPx, basePx)
+        .coerceAtMost(minOf(widthPx, heightPx) / 3f)
+    // A handle may never claim more than half the card, so on a tiny card the eight touch boxes
+    // cannot pile up on top of each other and steal each other's drags.
+    val touchPx = (handlePx + padPx * 2f).coerceAtMost(minOf(widthPx, heightPx) / 2f)
+    val strokePx = (2f * scale).coerceIn(1.5f, 2f)
     val left = centreX - widthPx / 2f
     val top = centreY - heightPx / 2f
     val right = centreX + widthPx / 2f
@@ -79,14 +92,14 @@ internal fun NodeResizeOverlay(
                 topLeft = Offset(left, top),
                 size = Size(widthPx.coerceAtLeast(1f), heightPx.coerceAtLeast(1f)),
                 style = Stroke(
-                    width = 2f,
-                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f), 0f),
+                    width = strokePx,
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f * scale, 8f * scale), 0f),
                 ),
             )
         }
 
         Handle(
-            x = left, y = top, size = handlePx, colour = fill,
+            x = left, y = top, size = handlePx, touch = touchPx, colour = fill,
             onStart = { dragFrom = floatArrayOf(node.width, node.height, node.x, node.y) },
             onDrag = { dxPx, dyPx ->
                 val from = dragFrom ?: return@Handle
@@ -99,7 +112,7 @@ internal fun NodeResizeOverlay(
             onEnd = { dragFrom = null; onCommit() },
         )
         Handle(
-            x = right, y = top, size = handlePx, colour = fill,
+            x = right, y = top, size = handlePx, touch = touchPx, colour = fill,
             onStart = { dragFrom = floatArrayOf(node.width, node.height, node.x, node.y) },
             onDrag = { dxPx, dyPx ->
                 val from = dragFrom ?: return@Handle
@@ -112,7 +125,7 @@ internal fun NodeResizeOverlay(
             onEnd = { dragFrom = null; onCommit() },
         )
         Handle(
-            x = left, y = bottom, size = handlePx, colour = fill,
+            x = left, y = bottom, size = handlePx, touch = touchPx, colour = fill,
             onStart = { dragFrom = floatArrayOf(node.width, node.height, node.x, node.y) },
             onDrag = { dxPx, dyPx ->
                 val from = dragFrom ?: return@Handle
@@ -125,7 +138,7 @@ internal fun NodeResizeOverlay(
             onEnd = { dragFrom = null; onCommit() },
         )
         Handle(
-            x = right, y = bottom, size = handlePx, colour = fill,
+            x = right, y = bottom, size = handlePx, touch = touchPx, colour = fill,
             onStart = { dragFrom = floatArrayOf(node.width, node.height, node.x, node.y) },
             onDrag = { dxPx, dyPx ->
                 val from = dragFrom ?: return@Handle
@@ -138,7 +151,7 @@ internal fun NodeResizeOverlay(
             onEnd = { dragFrom = null; onCommit() },
         )
         Handle(
-            x = centreX, y = top, size = handlePx, colour = fill,
+            x = centreX, y = top, size = handlePx, touch = touchPx, colour = fill,
             onStart = { dragFrom = floatArrayOf(node.width, node.height, node.x, node.y) },
             onDrag = { _, dyPx ->
                 val from = dragFrom ?: return@Handle
@@ -149,7 +162,7 @@ internal fun NodeResizeOverlay(
             onEnd = { dragFrom = null; onCommit() },
         )
         Handle(
-            x = centreX, y = bottom, size = handlePx, colour = fill,
+            x = centreX, y = bottom, size = handlePx, touch = touchPx, colour = fill,
             onStart = { dragFrom = floatArrayOf(node.width, node.height, node.x, node.y) },
             onDrag = { _, dyPx ->
                 val from = dragFrom ?: return@Handle
@@ -160,7 +173,7 @@ internal fun NodeResizeOverlay(
             onEnd = { dragFrom = null; onCommit() },
         )
         Handle(
-            x = left, y = centreY, size = handlePx, colour = fill,
+            x = left, y = centreY, size = handlePx, touch = touchPx, colour = fill,
             onStart = { dragFrom = floatArrayOf(node.width, node.height, node.x, node.y) },
             onDrag = { dxPx, _ ->
                 val from = dragFrom ?: return@Handle
@@ -171,7 +184,7 @@ internal fun NodeResizeOverlay(
             onEnd = { dragFrom = null; onCommit() },
         )
         Handle(
-            x = right, y = centreY, size = handlePx, colour = fill,
+            x = right, y = centreY, size = handlePx, touch = touchPx, colour = fill,
             onStart = { dragFrom = floatArrayOf(node.width, node.height, node.x, node.y) },
             onDrag = { dxPx, _ ->
                 val from = dragFrom ?: return@Handle
@@ -184,30 +197,28 @@ internal fun NodeResizeOverlay(
     }
 }
 
-/** One drag handle: a filled circle with a soft ring, dragged with the finger. */
+/**
+ * One drag handle. The visible circle is [size]; the box that receives the touch is [touch], so the
+ * circle can be the small one Saeed asked for while the finger still has something to hold on to.
+ */
 @Composable
 private fun Handle(
     x: Float,
     y: Float,
     size: Float,
+    touch: Float,
     colour: androidx.compose.ui.graphics.Color,
     onStart: () -> Unit,
     onDrag: (dxPx: Float, dyPx: Float) -> Unit,
     onEnd: () -> Unit,
 ) {
     val density = LocalDensity.current
-    val half = size / 2f
+    val half = touch / 2f
+    val ringPx = (size * 0.09f).coerceIn(1.5f, 4f)
     Box(
         modifier = Modifier
             .offset { IntOffset((x - half).roundToInt(), (y - half).roundToInt()) }
-            .size(with(density) { size.toDp() })
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.surface)
-            .border(
-                width = 2.dp,
-                color = colour,
-                shape = CircleShape,
-            )
+            .size(with(density) { touch.toDp() })
             .pointerInput(Unit) {
                 var totalX = 0f
                 var totalY = 0f
@@ -230,12 +241,31 @@ private fun Handle(
     ) {
         Box(
             modifier = Modifier
-                .size(with(density) { (size / 3f).toDp() })
+                .size(with(density) { size.toDp() })
                 .clip(CircleShape)
-                .background(colour),
-        )
+                .background(MaterialTheme.colorScheme.surface)
+                .border(
+                    width = with(density) { ringPx.toDp() },
+                    color = colour,
+                    shape = CircleShape,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(with(density) { (size / 3f).toDp() })
+                    .clip(CircleShape)
+                    .background(colour),
+            )
+        }
     }
 }
 
-/** Handle diameter, in dp — comfortably above the 48 dp touch minimum once the finger is on it. */
-private val HANDLE = 30.dp
+/** Handle diameter at 100% zoom, in dp — smaller than v0.9.0's 30 dp, as Saeed asked. */
+private val HANDLE = 22.dp
+
+/** The smallest a handle may shrink to, in dp, before it is too small to grab. */
+private val HANDLE_MIN = 12.dp
+
+/** Invisible margin around a handle, in dp, so the visible circle can stay small. */
+private val HANDLE_TOUCH_PAD = 10.dp

@@ -1,5 +1,6 @@
 package com.saeed.ideasmo.ui.board
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -23,7 +24,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
-import androidx.compose.material.icons.outlined.AutoFixHigh
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
@@ -41,11 +41,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.saeed.ideasmo.R
 import com.saeed.ideasmo.core.model.IdeaNode
+import com.saeed.ideasmo.core.model.LayoutDirection
 import com.saeed.ideasmo.core.model.LinkCatalog
 import com.saeed.ideasmo.core.model.NodeLink
 import com.saeed.ideasmo.core.model.NodeStore
@@ -57,6 +60,9 @@ import com.saeed.ideasmo.ui.theme.Spacing
 
 /** How far one tap of a direction button moves a subtree, in board units. */
 private const val NUDGE_STEP = 40f
+
+/** The little preview swatch in front of a branch row, in dp — small, because the panel is narrow. */
+private val SWATCH_W = 30.dp
 
 /**
  * Everything about one node in one place: the links that leave it, the links that arrive at it,
@@ -77,7 +83,7 @@ internal fun NodePanel(
     onToggleRoot: () -> Unit,
     onToggleCollapse: () -> Unit,
     onNudge: (Float, Float) -> Unit,
-    onArrange: () -> Unit,
+    onArrangeBranch: (LayoutDirection) -> Unit,
     onDetails: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
@@ -87,12 +93,19 @@ internal fun NodePanel(
     val subtree = NodeStore.subtreeOf(node.id)
     val children = NodeStore.childrenOf(node.id)
 
+    val panelShape = RoundedCornerShape(topStart = Radius.large, bottomStart = Radius.large)
+
     Surface(
         // The panel is docked to the right edge by the caller: a tall rectangle that leaves the
         // board visible on the left, as drawn in Saeed's sketch.
-        modifier = modifier.imePadding(),
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(topStart = Radius.large, bottomStart = Radius.large),
+        //
+        // It is tinted with surfaceVariant and carries an outline + shadow on purpose: v0.9.0 used the
+        // plain surface role, which on a dynamic-colour device is the same colour as the board, so the
+        // panel and the board merged into one another ("the window is not distinguishable at all").
+        modifier = modifier.imePadding().shadow(elevation = 10.dp, shape = panelShape),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = panelShape,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.55f)),
         tonalElevation = 3.dp,
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -134,15 +147,22 @@ internal fun NodePanel(
                     .fillMaxWidth()
                     .weight(1f),
                 contentPadding = PaddingValues(
-                    start = Spacing.screenH,
-                    end = Spacing.screenH,
+                    // Tighter than the full-screen padding on purpose: the panel is 40% of the screen,
+                    // and 16 dp on each side of it left the content too narrow to read — every line
+                    // broke into fragments and the panel looked broken.
+                    start = Spacing.m,
+                    end = Spacing.m,
                     bottom = Spacing.xxxl,
                 ),
             ) {
                 // ---- role in the structure -----------------------------------
                 item(key = "role") {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        // Scrolls, because the panel is 40% of the screen: two chips do not fit
+                        // side by side in it and a clipped row reads as a broken panel.
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(Spacing.s),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -261,7 +281,54 @@ internal fun NodePanel(
                     }
                 }
 
-                // ---- move / arrange -------------------------------------------
+                // ---- arrange this branch --------------------------------------
+                // Saeed's order: "the Arrange button has no place on the board — it belongs in the
+                // node's own properties, and there it should be a choice of left, right, up or
+                // down, applied to the node I selected." The node keeps its position; everything
+                // below it is laid out in the direction chosen here.
+                item(key = "arrange_header") {
+                    SectionTitle(stringResource(R.string.node_arrange_branch))
+                }
+                item(key = "arrange") {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = stringResource(R.string.node_arrange_hint),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(Spacing.s))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.s),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            DirectionChip(
+                                label = stringResource(R.string.arrange_left),
+                                icon = Icons.AutoMirrored.Outlined.KeyboardArrowLeft,
+                                onClick = { onArrangeBranch(LayoutDirection.Left) },
+                            )
+                            DirectionChip(
+                                label = stringResource(R.string.arrange_right),
+                                icon = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                                onClick = { onArrangeBranch(LayoutDirection.Right) },
+                            )
+                            DirectionChip(
+                                label = stringResource(R.string.arrange_up),
+                                icon = Icons.Outlined.KeyboardArrowUp,
+                                onClick = { onArrangeBranch(LayoutDirection.Up) },
+                            )
+                            DirectionChip(
+                                label = stringResource(R.string.arrange_down),
+                                icon = Icons.Outlined.KeyboardArrowDown,
+                                onClick = { onArrangeBranch(LayoutDirection.Down) },
+                            )
+                        }
+                    }
+                }
+
+                // ---- move -----------------------------------------------
                 item(key = "move_header") {
                     SectionTitle(stringResource(R.string.node_move))
                 }
@@ -274,7 +341,9 @@ internal fun NodePanel(
                         )
                         Spacer(Modifier.height(Spacing.s))
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(Spacing.s),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -298,19 +367,6 @@ internal fun NodePanel(
                                 label = stringResource(R.string.move_down),
                                 onClick = { onNudge(0f, NUDGE_STEP) },
                             )
-                        }
-                        Spacer(Modifier.height(Spacing.m))
-                        OutlinedButton(
-                            onClick = onArrange,
-                            modifier = Modifier.heightIn(min = Sizes.touchMin),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.AutoFixHigh,
-                                contentDescription = null,
-                                modifier = Modifier.size(Sizes.iconSm),
-                            )
-                            Spacer(Modifier.width(Spacing.s))
-                            Text(stringResource(R.string.node_arrange))
                         }
                     }
                 }
@@ -363,7 +419,13 @@ internal fun NodePanel(
     }
 }
 
-/** One outgoing branch: its position in the order, its sentence, and the two reorder arrows. */
+/**
+ * One outgoing branch: its sentence, then — on its own line — where it sits in the order and the two
+ * reorder arrows.
+ *
+ * Two lines, not one: the panel is 40% of the screen, and a swatch + a sentence + two 48 dp buttons
+ * cannot share one row in that width without clipping the sentence away.
+ */
 @Composable
 private fun BranchRow(
     link: NodeLink,
@@ -373,32 +435,20 @@ private fun BranchRow(
     onMove: (Int) -> Unit,
 ) {
     val type = LinkCatalog.byKey(link.type)
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = Sizes.listRowMin),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(vertical = Spacing.xs),
     ) {
-        Text(
-            text = (index + 1).toString(),
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.width(24.dp),
-        )
         Row(
             modifier = Modifier
-                .weight(1f)
+                .fillMaxWidth()
                 .clip(RoundedCornerShape(Radius.medium))
                 .clickable(onClick = onOpen)
                 .padding(vertical = Spacing.xs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                modifier = Modifier.width(52.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                LinkSwatch(type = type)
-            }
+            LinkSwatch(type = type, modifier = Modifier.width(SWATCH_W))
             Spacer(Modifier.width(Spacing.s))
             Text(
                 text = LinkCatalog.sentence(
@@ -409,39 +459,52 @@ private fun BranchRow(
                 ),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 2,
+                maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        IconButton(
-            onClick = { onMove(-1) },
-            enabled = index > 0,
-            modifier = Modifier.size(Sizes.touchMin),
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                imageVector = Icons.Outlined.KeyboardArrowUp,
-                contentDescription = stringResource(R.string.branch_up),
-                tint = if (index > 0) {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                } else {
-                    MaterialTheme.colorScheme.outline
-                },
+            Text(
+                text = stringResource(R.string.branch_position, index + 1, total),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
-        }
-        IconButton(
-            onClick = { onMove(1) },
-            enabled = index < total - 1,
-            modifier = Modifier.size(Sizes.touchMin),
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.KeyboardArrowDown,
-                contentDescription = stringResource(R.string.branch_down),
-                tint = if (index < total - 1) {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                } else {
-                    MaterialTheme.colorScheme.outline
-                },
-            )
+            IconButton(
+                onClick = { onMove(-1) },
+                enabled = index > 0,
+                modifier = Modifier.size(Sizes.touchMin),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.KeyboardArrowUp,
+                    contentDescription = stringResource(R.string.branch_up),
+                    tint = if (index > 0) {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        MaterialTheme.colorScheme.outline
+                    },
+                )
+            }
+            IconButton(
+                onClick = { onMove(1) },
+                enabled = index < total - 1,
+                modifier = Modifier.size(Sizes.touchMin),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.KeyboardArrowDown,
+                    contentDescription = stringResource(R.string.branch_down),
+                    tint = if (index < total - 1) {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        MaterialTheme.colorScheme.outline
+                    },
+                )
+            }
         }
     }
 }
@@ -457,21 +520,37 @@ private fun LinkRow(sentence: String, type: com.saeed.ideasmo.core.model.LinkTyp
             .padding(vertical = Spacing.xs),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            modifier = Modifier.width(52.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            LinkSwatch(type = type)
-        }
+        LinkSwatch(type = type, modifier = Modifier.width(SWATCH_W))
         Spacer(Modifier.width(Spacing.s))
         Text(
             text = sentence,
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 2,
+            maxLines = 3,
             overflow = TextOverflow.Ellipsis,
         )
     }
+}
+
+/**
+ * One of the four directions a branch can be arranged in. A chip, not a menu: Saeed explicitly
+ * dropped the "small list pops out of the button" idea in favour of a choice inside the node's own
+ * properties.
+ */
+@Composable
+private fun DirectionChip(label: String, icon: ImageVector, onClick: () -> Unit) {
+    ChoiceChip(
+        text = label,
+        selected = false,
+        onClick = onClick,
+        leading = {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(Sizes.iconSm),
+            )
+        },
+    )
 }
 
 @Composable

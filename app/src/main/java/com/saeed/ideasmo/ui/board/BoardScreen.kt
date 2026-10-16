@@ -118,9 +118,28 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
-private const val MIN_SCALE = 0.25f
+/**
+ * The furthest the board can be pulled out (Saeed's order: "zoom out only goes to 25% — make it 5%").
+ * At this zoom the whole map is a diagram; pan and pinch still anchor on the fingers, so nothing
+ * jumps when the scale changes.
+ */
+private const val MIN_SCALE = 0.05f
 private const val MAX_SCALE = 2.0f
 private const val ZOOM_STEP = 0.25f
+
+/**
+ * One tap of the zoom buttons. Above a quarter we keep the familiar 25% steps; below it the step
+ * drops to 5%, otherwise MIN_SCALE would be unreachable (25% − 25% = 0).
+ */
+private fun zoomStepAt(scale: Float): Float = if (scale <= 0.25f) 0.05f else ZOOM_STEP
+
+/**
+ * The width of the docked right-hand panel as a fraction of the screen (Saeed's order: 40%).
+ * v0.9.0 clamped a PIXEL count and then converted it to dp, so on a 1080 px screen the panel came out
+ * ~130 dp wide — narrow enough that every line of the panel broke into fragments.
+ */
+private const val PANEL_WIDTH_FRACTION = 0.40f
+
 private const val MINIMAP_LINGER_MS = 900L
 private const val MINIMAP_W = 200
 private const val MINIMAP_H = 140
@@ -535,6 +554,9 @@ fun BoardScreen(
             originX = BoardSpace.ORIGIN_X,
             originY = BoardSpace.ORIGIN_Y,
             anchorRootAtOrigin = true,
+            // What the cards really measure — a card grows with its content, and the layout must
+            // reserve that, or siblings end up drawn on top of each other.
+            measured = NodeStore.measuredSizes(),
         )
         if (positions.isEmpty()) {
             notice = context.getString(R.string.arrange_nothing)
@@ -548,6 +570,48 @@ fun BoardScreen(
                 NodeStore.applyPositions(context, before)
             }
             AppLog.i("Board", "arranged " + positions.size + " node(s), central: '" + anchorName + "'")
+        }
+    }
+
+    /**
+     * Arranges ONE branch (Saeed's order): the direction is chosen in the node's own properties, and
+     * only the selected node and everything below it move. The selected node itself stays exactly
+     * where it is, so the branch grows away from the finger instead of the map jumping to the origin.
+     */
+    val arrangeBranch: (String, LayoutDirection) -> Unit = { nodeId, branchDirection ->
+        val node = NodeStore.byId(nodeId)
+        if (node == null) {
+            notice = context.getString(R.string.arrange_nothing)
+        } else {
+            val positions = StructureLayout.arrangeBranch(
+                nodes = nodes,
+                links = links,
+                rootId = nodeId,
+                direction = branchDirection,
+                spacing = spacing,
+                measured = NodeStore.measuredSizes(),
+            )
+            if (positions.isEmpty()) {
+                notice = context.getString(R.string.arrange_branch_nothing, node.name)
+            } else {
+                val before = nodes.associate { it.id to LayoutPoint(it.x, it.y) }
+                NodeStore.applyPositions(context, positions)
+                UndoStack.push(
+                    context.getString(R.string.undo_arrange_branch, node.name, branchDirection.label),
+                ) {
+                    NodeStore.applyPositions(context, before)
+                }
+                notice = context.getString(
+                    R.string.arrange_branch_done,
+                    positions.size,
+                    branchDirection.label,
+                )
+                AppLog.i(
+                    "Board",
+                    "arranged branch of '" + node.name + "' to the " + branchDirection.label +
+                        " (" + positions.size + " node(s))",
+                )
+            }
         }
     }
 
@@ -688,7 +752,10 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
         }
     }
 
-    val panelWidth = (board.viewportW * 0.82f).coerceAtMost(340f)
+    // 40% of the screen width, in real dp — see PANEL_WIDTH_FRACTION.
+    val panelWidth = with(LocalDensity.current) {
+        (board.viewportW * PANEL_WIDTH_FRACTION).toDp()
+    }
 
     Scaffold(
         topBar = {
@@ -1108,12 +1175,6 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             val onBoard = viewMode == ViewMode.Board
                             ToolButton(
-                                icon = Icons.Outlined.AutoFixHigh,
-                                contentDescription = stringResource(R.string.tool_arrange),
-                                enabled = onBoard,
-                                onClick = arrangeNow,
-                            )
-                            ToolButton(
                                 icon = Icons.AutoMirrored.Outlined.Undo,
                                 contentDescription = stringResource(R.string.tool_undo),
                                 enabled = UndoStack.canUndo,
@@ -1141,7 +1202,7 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                                 enabled = onBoard && board.scale > MIN_SCALE,
                                 onClick = {
                                     board.setScaleAround(
-                                        board.scale - ZOOM_STEP,
+                                        board.scale - zoomStepAt(board.scale),
                                         board.viewportW / 2f,
                                         board.viewportH / 2f,
                                     )
@@ -1165,7 +1226,7 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                                 enabled = onBoard && board.scale < MAX_SCALE,
                                 onClick = {
                                     board.setScaleAround(
-                                        board.scale + ZOOM_STEP,
+                                        board.scale + zoomStepAt(board.scale),
                                         board.viewportW / 2f,
                                         board.viewportH / 2f,
                                     )
@@ -1204,6 +1265,7 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                 val centreY = board.worldToScreenY(barsNode.y + nodeH / 2f)
                 NodeActionBars(
                     node = barsNode,
+                    zoom = board.scale,
                     centreX = centreX,
                     centreY = centreY,
                     nodeWidthPx = nodeW * board.scale,
@@ -1263,7 +1325,7 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                         modifier = Modifier
                             .align(Alignment.CenterEnd)
                             .fillMaxHeight()
-                            .width(with(LocalDensity.current) { panelWidth.toDp() }),
+                            .width(panelWidth),
                         onClose = { panel = null },
                         onOpenLink = { link -> panel = Panel.LinkInfo(link.id) },
                         onAddLink = { panel = Panel.Picker(node.id) },
@@ -1291,7 +1353,7 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                             }
                         },
                         onNudge = { dx, dy -> NodeStore.moveSubtree(context, node.id, dx, dy) },
-                        onArrange = arrangeNow,
+                        onArrangeBranch = { dir -> arrangeBranch(node.id, dir) },
                         onDetails = { detailsFor = node.id },
                         onDelete = {
                             removeIdsWithUndo(
@@ -1756,6 +1818,7 @@ private fun BoardNode(
     onDragEnd: () -> Unit,
 ) {
     val linkCount = NodeStore.linksOf(node.id).size
+    val density = LocalDensity.current
     val scheme = MaterialTheme.colorScheme
     val role = node.color?.let { key -> LinkColor.values().firstOrNull { it.name.equals(key, true) } }
     val container = if (role == null) {
@@ -1773,6 +1836,16 @@ private fun BoardNode(
             .offset { IntOffset(node.x.roundToInt(), node.y.roundToInt()) }
             .width(StructureLayout.widthOf(node).dp)
             .heightIn(min = StructureLayout.heightOf(node).dp)
+            // The card can render TALLER than its stored height (a picture, a long name). Report what
+            // it really measured, in board units, so the auto-layout can reserve that space and never
+            // lay a sibling on top of it. Memory only: this is a measurement, not saved data.
+            .onSizeChanged { size ->
+                NodeStore.noteRenderedSize(
+                    id = node.id,
+                    w = size.width / density.density,
+                    h = size.height / density.density,
+                )
+            }
             .pointerInput(node.id) {
                 detectTapGestures(
                     onTap = { onTap() },

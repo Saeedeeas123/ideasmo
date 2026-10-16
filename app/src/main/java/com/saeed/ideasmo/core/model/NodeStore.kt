@@ -459,6 +459,31 @@ object NodeStore {
         AppLog.i("Structure", "layout applied to $moved node(s)")
     }
 
+    // ---- the size each card really renders at (memory only) ------------------
+    //
+    // A card grows with its content — a picture, a long name — so the height stored on the node can
+    // be smaller than what is on screen. The board reports the size it actually drew (BoardNode), and
+    // the auto-layout reserves that, so siblings can never be laid out closer than the cards are
+    // tall. This is deliberately NOT part of the saved model: it is a measurement of the current
+    // screen and font scale, and it is re-measured on every run.
+    private val rendered = HashMap<String, LayoutSize>()
+
+    /** Called by the board once a card has been laid out. Sizes are in board units. */
+    fun noteRenderedSize(id: String, w: Float, h: Float) {
+        if (w <= 0f || h <= 0f) return
+        val known = rendered[id]
+        if (known != null &&
+            kotlin.math.abs(known.w - w) < 0.5f &&
+            kotlin.math.abs(known.h - h) < 0.5f
+        ) {
+            return
+        }
+        rendered[id] = LayoutSize(w, h)
+    }
+
+    /** What the cards measured the last time the board drew them. */
+    fun measuredSizes(): Map<String, LayoutSize> = rendered
+
     // ---- link ordering ------------------------------------------------------
 
     /** Moves a link up or down among its siblings (the branches of the same parent). */

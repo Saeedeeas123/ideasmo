@@ -3,6 +3,9 @@ package com.saeed.ideasmo.core.model
 /** A position on the board, in board units. */
 data class LayoutPoint(val x: Float, val y: Float)
 
+/** A size on the board, in board units. */
+data class LayoutSize(val w: Float, val h: Float)
+
 /** Which way a structure grows out of its central node. */
 enum class LayoutDirection(val key: String, val label: String) {
     Right("right", "Right"),
@@ -65,6 +68,24 @@ object StructureLayout {
 
     fun heightOf(node: IdeaNode): Float = node.height
 
+    /**
+     * The space a node really needs: its stored card size, or the size the card actually rendered at
+     * when that is bigger.
+     *
+     * A card grows with its content — a picture, a long name — so its stored height can be smaller
+     * than what is on screen. Laying siblings out by the stored height only is what let branches
+     * overlap after Arrange (Saeed's screenshot). The measured map is memory-only data the board
+     * reports while it draws (see NodeStore.noteRenderedSize); the engine stays pure, so the JVM
+     * tests pass the map in explicitly.
+     */
+    fun spaceOf(node: IdeaNode, measured: Map<String, LayoutSize> = emptyMap()): LayoutSize {
+        val m = measured[node.id]
+        return LayoutSize(
+            w = maxOf(widthOf(node), m?.w ?: 0f),
+            h = maxOf(heightOf(node), m?.h ?: 0f),
+        )
+    }
+
     /** The smallest and largest card a user can make by dragging a resize handle. */
     const val MIN_NODE_W = 120f
     const val MAX_NODE_W = 720f
@@ -90,6 +111,7 @@ object StructureLayout {
         originX: Float = 0f,
         originY: Float = 0f,
         anchorRootAtOrigin: Boolean = false,
+        measured: Map<String, LayoutSize> = emptyMap(),
     ): Map<String, LayoutPoint> {
         if (nodes.isEmpty()) return emptyMap()
         val byId = nodes.associateBy { it.id }
@@ -97,15 +119,55 @@ object StructureLayout {
         val roots = resolveRoots(nodes, links, preferredRoots).filter { byId.containsKey(it) }
         if (roots.isEmpty()) return emptyMap()
         val laidOut = if (direction == LayoutDirection.Radial) {
-            radial(byId, children, roots, spacing, originX, originY)
+            radial(byId, children, roots, spacing, originX, originY, measured)
         } else {
-            linear(byId, children, roots, direction, spacing, originX, originY)
+            linear(byId, children, roots, direction, spacing, originX, originY, measured)
         }
         return if (anchorRootAtOrigin) {
-            anchorAt(laidOut, roots.first(), byId, originX, originY)
+            anchorAt(laidOut, roots.first(), byId, originX, originY, measured)
         } else {
             laidOut
         }
+    }
+
+    /**
+     * Arranges ONE branch: the node the user picked **stays exactly where it is** and everything
+     * below it is laid out in [direction], following the stored branch order.
+     *
+     * This is the per-node Arrange (Saeed's order: the direction belongs to the selected node's own
+     * properties, not to a button on the board). Only that node's subtree moves, so arranging a
+     * branch can never throw the rest of the map somewhere else, and — unlike the whole-map Arrange,
+     * which anchors the map on the board origin — nothing jumps under the user's finger.
+     *
+     * A node with nothing below it produces a single unchanged position, which the caller is expected
+     * to report as "nothing to arrange" rather than as a move.
+     */
+    fun arrangeBranch(
+        nodes: List<IdeaNode>,
+        links: List<NodeLink>,
+        rootId: String,
+        direction: LayoutDirection = LayoutDirection.Right,
+        spacing: LayoutSpacing = LayoutSpacing.Normal,
+        measured: Map<String, LayoutSize> = emptyMap(),
+    ): Map<String, LayoutPoint> {
+        val byId = nodes.associateBy { it.id }
+        val root = byId[rootId] ?: return emptyMap()
+        val children = childrenMap(nodes, links)
+        val laidOut = if (direction == LayoutDirection.Radial) {
+            radial(byId, children, listOf(rootId), spacing, 0f, 0f, measured)
+        } else {
+            linear(byId, children, listOf(rootId), direction, spacing, 0f, 0f, measured)
+        }
+        if (laidOut.size <= 1) return emptyMap()
+        val space = spaceOf(root, measured)
+        return anchorAt(
+            positions = laidOut,
+            anchorId = rootId,
+            byId = byId,
+            originX = root.x + space.w / 2f,
+            originY = root.y + space.h / 2f,
+            measured = measured,
+        )
     }
 
     /**
@@ -119,11 +181,13 @@ object StructureLayout {
         byId: Map<String, IdeaNode>,
         originX: Float,
         originY: Float,
+        measured: Map<String, LayoutSize> = emptyMap(),
     ): Map<String, LayoutPoint> {
         val anchor = positions[anchorId] ?: return positions
         val anchorNode = byId[anchorId]
-        val halfW = if (anchorNode != null) widthOf(anchorNode) / 2f else NODE_HALF_W
-        val halfH = if (anchorNode != null) heightOf(anchorNode) / 2f else NODE_HALF_H
+        val space = if (anchorNode != null) spaceOf(anchorNode, measured) else LayoutSize(NODE_W, NODE_H)
+        val halfW = space.w / 2f
+        val halfH = space.h / 2f
         val dx = originX - (anchor.x + halfW)
         val dy = originY - (anchor.y + halfH)
         if (dx == 0f && dy == 0f) return positions
@@ -172,12 +236,14 @@ object StructureLayout {
         spacing: LayoutSpacing,
         originX: Float,
         originY: Float,
+        measured: Map<String, LayoutSize>,
     ): Map<String, LayoutPoint> {
         val horizontal = direction == LayoutDirection.Right || direction == LayoutDirection.Left
-        // A node can be resized, so the extent along the sibling axis belongs to the node itself,
-        // and the step between two levels must clear the LARGEST card on the board.
-        val maxW = byId.values.maxOf { widthOf(it) }
-        val maxH = byId.values.maxOf { heightOf(it) }
+        // A node can be resized — and a card can render taller than its stored height — so the extent
+        // along the sibling axis belongs to the node itself, and the step between two levels must
+        // clear the LARGEST card on the board.
+        val maxW = byId.values.maxOf { spaceOf(it, measured).w }
+        val maxH = byId.values.maxOf { spaceOf(it, measured).h }
         val gap = spacing.siblingGap
         val raw = LinkedHashMap<String, Pair<Int, Float>>()
         val visited = HashSet<String>()
@@ -185,7 +251,8 @@ object StructureLayout {
         fun place(id: String, depth: Int, start: Float): Float {
             if (!visited.add(id)) return 0f
             val node = byId[id] ?: return 0f
-            val extent = if (horizontal) heightOf(node) else widthOf(node)
+            val space = spaceOf(node, measured)
+            val extent = if (horizontal) space.h else space.w
             val kids = if (node.collapsed) {
                 emptyList()
             } else {
@@ -224,14 +291,18 @@ object StructureLayout {
         }
 
         val levelStep = if (horizontal) maxW + spacing.levelGap else maxH + spacing.levelGap
-        return raw.mapValues { (_, value) ->
+        return raw.mapValues { (id, value) ->
             val depth = value.first
             val along = value.second
+            // The offset back towards the parent uses the NODE'S OWN size, not a constant: a 554-unit
+            // card in Left/Up used to be pushed out by the default 200/96, so a resized card ended up
+            // straddling the level line instead of starting on it.
+            val space = byId[id]?.let { spaceOf(it, measured) } ?: LayoutSize(NODE_W, NODE_H)
             when (direction) {
                 LayoutDirection.Right -> LayoutPoint(originX + depth * levelStep, originY + along)
-                LayoutDirection.Left -> LayoutPoint(originX - depth * levelStep - NODE_W, originY + along)
+                LayoutDirection.Left -> LayoutPoint(originX - depth * levelStep - space.w, originY + along)
                 LayoutDirection.Down -> LayoutPoint(originX + along, originY + depth * levelStep)
-                LayoutDirection.Up -> LayoutPoint(originX + along, originY - depth * levelStep - NODE_H)
+                LayoutDirection.Up -> LayoutPoint(originX + along, originY - depth * levelStep - space.h)
                 LayoutDirection.Radial -> LayoutPoint(originX + depth * levelStep, originY + along)
             }
         }
@@ -244,8 +315,9 @@ object StructureLayout {
         spacing: LayoutSpacing,
         originX: Float,
         originY: Float,
+        measured: Map<String, LayoutSize> = emptyMap(),
     ): Map<String, LayoutPoint> {
-        val maxW = byId.values.maxOf { widthOf(it) }
+        val maxW = byId.values.maxOf { spaceOf(it, measured).w }
         // Rings must clear the biggest card, so a resized node can never sit on top of its parent.
         val radiusStep = maxOf(NODE_W, maxW) + spacing.levelGap
         val rootRadius = if (roots.size <= 1) 0f else radiusStep * 0.55f
@@ -285,8 +357,9 @@ object StructureLayout {
             val angle = value.first
             val radius = value.second
             val node = byId[id]
-            val halfW = if (node != null) widthOf(node) / 2f else NODE_HALF_W
-            val halfH = if (node != null) heightOf(node) / 2f else NODE_HALF_H
+            val space = if (node != null) spaceOf(node, measured) else LayoutSize(NODE_W, NODE_H)
+            val halfW = space.w / 2f
+            val halfH = space.h / 2f
             LayoutPoint(
                 originX + kotlin.math.cos(angle) * radius - halfW,
                 originY + kotlin.math.sin(angle) * radius - halfH,
