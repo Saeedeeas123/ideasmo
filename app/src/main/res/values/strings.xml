@@ -109,18 +109,22 @@
     <string name="help_links_title">Node relations</string>
     <string name="help_links_intro">A relation is a sentence: “A is a B”, “A requires B”. Choose the phrase that reads correctly, and the line is drawn to match it.</string>
     <string name="help_gesture_pan">Drag one finger — move the board</string>
-    <string name="help_gesture_zoom">Pinch, or use − and + — zoom from 25% to 200%</string>
+    <string name="help_gesture_zoom">Pinch, or use − and + — zoom from 5% to 200%</string>
     <string name="help_gesture_reset">Tap the zoom percentage — reset the view</string>
     <string name="help_gesture_minimap">Touch and travel — the minimap appears, your finger is the red dot</string>
     <string name="help_gesture_node">Drag a node — move it anywhere</string>
-    <string name="help_gesture_select">Tap a node — select it, then Link or Delete appear</string>
+    <string name="help_gesture_select">Tap a node — it is selected and its action box opens above it</string>
     <string name="help_gesture_create">Tap “new node” — it is created where you are looking</string>
     <string name="help_gesture_list">The list button — switch between board and list</string>
     <string name="help_gesture_band">Long-press the empty board, then drag — draw a band around several nodes to select them</string>
     <string name="help_gesture_multi">Long-press a node — add or remove it from the selection. Dragging one selected node moves all of them</string>
     <string name="help_gesture_back">Back steps out one level at a time: dialog, panel, waiting mode, tool, selection — then the screen</string>
     <string name="help_gesture_undo">Undo in the toolbar puts the last action back — it stays available, no message needed</string>
-    <string name="help_gesture_tools">Resize, Colour and Shape open their tool inside the square; Resize gives handles on the card</string>
+<string name="help_gesture_tools">Resize, Colour and Shape open their controls in the same box; Resize gives handles on the corners of the card</string>
+    <string name="help_gesture_box">The box above a node holds all sixteen actions in one place — it never scales with the zoom, so its buttons are always the same size</string>
+    <string name="help_gesture_sheet">More opens the node sheet — a tall rectangle from the bottom of the screen with the node itself pinned at its top</string>
+    <string name="help_gesture_arrange">Arrange the branch: pick Left, Right, Up or Down in the node sheet. Only that branch is laid out, the node you picked stays where it is, and every link comes out the same length</string>
+
     <string name="help_link_style">How it is drawn</string>
     <string name="new_node">new node</string>
     <string name="cd_new_node">Create a node</string>
@@ -324,7 +328,7 @@
     <string name="style_shape">Shape</string>
     <string name="style_default">Default</string>
     <string name="style_colour_default_detail">The plain card tone — it follows day / night and your wallpaper colour.</string>
-    <string name="style_note">Size presets, colour and shape all live here too — the same tools the square offers in place.</string>
+    <string name="style_note">Size presets, colour and shape all live here too — the same tools the action box offers in place.</string>
     <!-- v0.9.0 · no toast: inline strips + undo -->
     <string name="tool_undo">Undo</string>
     <string name="undo_nothing">Nothing to undo</string>

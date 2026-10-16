@@ -546,3 +546,44 @@ no dependency where a Compose `Canvas` would do.
   unverified until Saeed installs the APK. The specific open questions: is a 28 dp icon-only button
   tappable enough at 25 % zoom, and does 5 % zoom reveal the whole map usefully or does the board
   pattern get too dense.
+
+### v0.11.0 sign-off (2026-10-16, second round on the same day)
+- **THE REAL BUG OF THE WHOLE ROUND: one board space.** A node's `x`/`y` were handed to
+  `Modifier.offset { IntOffset(...) }`, which is **pixels**, while the card itself was sized with
+  `widthOf(node).dp`, which is **dp × density**. The two were a factor of `density` (~2.6 on this
+  device) apart, so:
+  - the auto-layout reserved ~2.6x less room along the sibling and level axes than the cards actually
+    took — the pile of overlapping cards in Saeed's screenshot;
+  - the link lines were drawn to points that did not match the cards;
+  - the resize handles were positioned around a rectangle 2.6x too small, which is why eight of them
+    collapsed into a blob at the top-left of the card (his screenshot) instead of sitting on the
+    corners and edge midpoints;
+  - the action square and the node panel were anchored to the same wrong rectangle.
+  `BoardState` now carries the density, everything converts through it (`worldToScreenX`,
+  `screenToWorldX`, `screenRectOf`, `resetView`, `centreOnWorld`, the node offset, and the drag delta,
+  which needs `/(scale * density)`), and board units mean exactly what [BoardSpace] documents: dp at
+  100 % zoom. A new `centreOnWorldBand` centres a node in the strip that stays visible above the sheet.
+- **The action box replaces the four-bar square** (`NodeActionBox`, `NodeActionBars` deleted): one
+  rounded rectangle above the node, six columns, all sixteen catalogue actions in one place, flipping
+  below the node when there is no room above, and **never scaling with the zoom** — the v0.10.0
+  proportional attempt is what he called torture. The tools (Resize/Colour/Shape) open an extra row
+  inside the same box.
+- **The node sheet replaces the docked right panel**: `More` opens a full-width surface over the bottom
+  70 % of the screen (`SHEET_HEIGHT_FRACTION`) behind a scrim, with the node itself **pinned at the
+  top** — drawn by the new shared `NodeCardBody`, extracted from `BoardNode` so the sheet header is
+  literally the card you tapped. Opening it also re-centres the view on the node inside the visible
+  strip.
+- **Arrange respects the links** (his item 5). `linear()` is now a two-pass tidy-tree: pass 1 packs the
+  sibling axis as before; pass 2 places each child exactly one `levelGap` from **its own parent's edge**,
+  so every link comes out the same length whatever the card sizes (v0.10.0 stepped by the largest card
+  on the board). `arrangeBranch` then slides the branch along its cross axis until it is clear of nodes
+  that are not part of it (bounded, deterministic, `MAX_CLEAR_STEPS`), and the whole-map `arrange` parks
+  loose nodes in a column beside the result instead of leaving them on top of it (`park`).
+- Verified how: `:app:testDebugUnitTest` **40/40 green, 0 failures, 0 errors** — StructureLayoutTest is
+  now 26 with four new tests (every link is the same length after Arrange; a branch is slid clear of a
+  blocker and its own node does not move; arranging the same branch twice is identical; loose nodes are
+  parked clear of the map). `:app:assembleDebug` **BUILD SUCCESSFUL with 0 Kotlin warnings**.
+- Not verified: the device again. The specific things to look at: does the box above the node cover
+  something important when the node is mid-screen; does 6 columns keep the labels readable on his
+  screen; is 70 % the right height for the sheet; and does the spread-out board (see below) look right
+  or should the old arrangement be re-run.

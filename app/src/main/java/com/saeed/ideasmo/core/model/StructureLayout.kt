@@ -123,10 +123,15 @@ object StructureLayout {
         } else {
             linear(byId, children, roots, direction, spacing, originX, originY, measured)
         }
+        val anchored = if (anchorRootAtOrigin) anchorAt(laidOut, roots.first(), byId, originX, originY, measured) else laidOut
+        // The whole-map Arrange also tidies what it does NOT lay out: nodes that belong to no tree are
+        // parked in a column beside the result instead of being left sitting on top of it (that pile
+        // is what Saeed photographed). A branch arrange deliberately does NOT do this — it moves only
+        // the branch the user picked.
         return if (anchorRootAtOrigin) {
-            anchorAt(laidOut, roots.first(), byId, originX, originY, measured)
+            park(anchored, nodes.filter { it.id !in anchored.keys }, measured, spacing)
         } else {
-            laidOut
+            anchored
         }
     }
 
@@ -160,7 +165,7 @@ object StructureLayout {
         }
         if (laidOut.size <= 1) return emptyMap()
         val space = spaceOf(root, measured)
-        return anchorAt(
+        val anchored = anchorAt(
             positions = laidOut,
             anchorId = rootId,
             byId = byId,
@@ -168,6 +173,99 @@ object StructureLayout {
             originY = root.y + space.h / 2f,
             measured = measured,
         )
+        // The branch keeps its node where it is, so it can land on nodes that are not part of it.
+        // Slide it along its cross axis until it is clear of them (Saeed: "the links must not overlap,
+        // there must be a logical gap").
+        return clear(
+            positions = anchored,
+            byId = byId,
+            measured = measured,
+            others = nodes,
+            spacing = spacing,
+            horizontal = direction != LayoutDirection.Down && direction != LayoutDirection.Up,
+        )
+    }
+
+    /** How many steps [clear] may slide a layout before giving up (40 x half a level gap). */
+    private const val MAX_CLEAR_STEPS = 40
+
+    /**
+     * Slides a finished layout along its cross axis until it stops colliding with nodes that are not
+     * part of it — deterministic, so arranging the same branch twice gives the same answer. It always
+     * moves in the positive cross direction (down for a left/right branch, right for an up/down
+     * branch), in half-level-gap steps.
+     */
+    private fun clear(
+        positions: Map<String, LayoutPoint>,
+        byId: Map<String, IdeaNode>,
+        measured: Map<String, LayoutSize>,
+        others: List<IdeaNode>,
+        spacing: LayoutSpacing,
+        horizontal: Boolean,
+    ): Map<String, LayoutPoint> {
+        val blockers = others.filter { it.id !in positions.keys }
+        if (blockers.isEmpty()) return positions
+        val step = maxOf(1f, spacing.levelGap / 2f)
+        var shift = 0f
+        var guard = 0
+        while (guard < MAX_CLEAR_STEPS && collides(positions, byId, measured, blockers, shift, horizontal)) {
+            shift += step
+            guard++
+        }
+        if (shift == 0f) return positions
+        return positions.mapValues { (_, point) ->
+            if (horizontal) LayoutPoint(point.x, point.y + shift) else LayoutPoint(point.x + shift, point.y)
+        }
+    }
+
+    /** True when the layout (shifted by [shift] on its cross axis) overlaps any of [blockers]. */
+    private fun collides(
+        positions: Map<String, LayoutPoint>,
+        byId: Map<String, IdeaNode>,
+        measured: Map<String, LayoutSize>,
+        blockers: List<IdeaNode>,
+        shift: Float,
+        horizontal: Boolean,
+    ): Boolean = positions.any { (id, point) ->
+        val node = byId[id] ?: return@any false
+        val a = spaceOf(node, measured)
+        val ax = if (horizontal) point.x else point.x + shift
+        val ay = if (horizontal) point.y + shift else point.y
+        blockers.any { other ->
+            val b = spaceOf(other, measured)
+            ax < other.x + b.w && ax + a.w > other.x && ay < other.y + b.h && ay + a.h > other.y
+        }
+    }
+
+    /**
+     * Parks nodes that the arrangement did not place in a tidy column to the left of the result, so a
+     * loose node can never sit on top of the arranged map. Order follows the given list (creation
+     * order), which keeps the result stable.
+     */
+    private fun park(
+        positions: Map<String, LayoutPoint>,
+        strays: List<IdeaNode>,
+        measured: Map<String, LayoutSize>,
+        spacing: LayoutSpacing,
+    ): Map<String, LayoutPoint> {
+        if (strays.isEmpty() || positions.isEmpty()) return positions
+        var left = Float.MAX_VALUE
+        var top = Float.MAX_VALUE
+        positions.forEach { (_, point) ->
+            if (point.x < left) left = point.x
+            if (point.y < top) top = point.y
+        }
+        if (left == Float.MAX_VALUE) return positions
+        val widest = strays.maxOf { spaceOf(it, measured).w }
+        val columnX = left - spacing.levelGap * 2f - widest
+        var columnY = top
+        val parked = HashMap<String, LayoutPoint>()
+        strays.forEach { stray ->
+            val space = spaceOf(stray, measured)
+            parked[stray.id] = LayoutPoint(columnX, columnY)
+            columnY += space.h + spacing.siblingGap
+        }
+        return positions + parked
     }
 
     /**
@@ -228,6 +326,18 @@ object StructureLayout {
         return result
     }
 
+    /**
+     * The classic tidy-tree walk, in **two passes**.
+     *
+     * Pass 1 packs the sibling axis: every subtree gets its own slot on that axis and a parent is
+     * centred on the block of its children, so nothing can be laid on top of anything else.
+     *
+     * Pass 2 places the growth axis **link by link**: a child sits exactly [LayoutSpacing.levelGap]
+     * away from its OWN parent's edge. That is Saeed's "standard link length" — after an Arrange every
+     * link is the same length and has the same logical gap, whatever sizes the cards have. v0.10.0
+     * measured the step from the LARGEST card on the board and applied it uniformly, so a small card
+     * got a long link and a big card a short one, and the links looked arbitrary.
+     */
     private fun linear(
         byId: Map<String, IdeaNode>,
         children: Map<String, List<String>>,
@@ -239,71 +349,80 @@ object StructureLayout {
         measured: Map<String, LayoutSize>,
     ): Map<String, LayoutPoint> {
         val horizontal = direction == LayoutDirection.Right || direction == LayoutDirection.Left
-        // A node can be resized — and a card can render taller than its stored height — so the extent
-        // along the sibling axis belongs to the node itself, and the step between two levels must
-        // clear the LARGEST card on the board.
-        val maxW = byId.values.maxOf { spaceOf(it, measured).w }
-        val maxH = byId.values.maxOf { spaceOf(it, measured).h }
         val gap = spacing.siblingGap
-        val raw = LinkedHashMap<String, Pair<Int, Float>>()
-        val visited = HashSet<String>()
+        val levelGap = spacing.levelGap
+        val cross = HashMap<String, Float>()
+        val level = HashMap<String, Float>()
+        val measuredIds = HashSet<String>()
 
-        fun place(id: String, depth: Int, start: Float): Float {
-            if (!visited.add(id)) return 0f
+        fun place(id: String, start: Float): Float {
+            if (!measuredIds.add(id)) return 0f
             val node = byId[id] ?: return 0f
             val space = spaceOf(node, measured)
             val extent = if (horizontal) space.h else space.w
             val kids = if (node.collapsed) {
                 emptyList()
             } else {
-                children[id].orEmpty().filter { it !in visited }
+                children[id].orEmpty().filter { it !in measuredIds }
             }
             if (kids.isEmpty()) {
-                raw[id] = depth to start
+                cross[id] = start
                 return extent
             }
             var cursor = start
             var placed = 0
             kids.forEach { kid ->
-                val used = place(kid, depth + 1, cursor)
+                val used = place(kid, cursor)
                 if (used > 0f) {
                     placed++
                     cursor += used + gap
                 }
             }
             if (placed == 0) {
-                raw[id] = depth to start
+                cross[id] = start
                 return extent
             }
             val span = cursor - gap - start
             // The parent sits centred on the block of its children — the classic tree look.
-            raw[id] = depth to (start + (span - extent) / 2f)
+            cross[id] = start + (span - extent) / 2f
             return maxOf(span, extent)
         }
 
-        // The cursor is measured from the origin, NOT started at it: the transform below already adds
-        // originX / originY. Starting it at the origin too (as v0.6.0 did) shifted the whole map by
-        // the origin on every Arrange — the drift that made Arrange feel unreliable.
+        // The cross cursor is measured from zero, NOT from the origin: the transform below already
+        // adds originX / originY (v0.6.0 added both and every Arrange displaced the whole map).
         var cursor = 0f
         roots.forEach { root ->
-            val used = place(root, 0, cursor)
+            val used = place(root, cursor)
             if (used > 0f) cursor += used + gap * 2f
         }
 
-        val levelStep = if (horizontal) maxW + spacing.levelGap else maxH + spacing.levelGap
-        return raw.mapValues { (id, value) ->
-            val depth = value.first
-            val along = value.second
-            // The offset back towards the parent uses the NODE'S OWN size, not a constant: a 554-unit
-            // card in Left/Up used to be pushed out by the default 200/96, so a resized card ended up
-            // straddling the level line instead of starting on it.
-            val space = byId[id]?.let { spaceOf(it, measured) } ?: LayoutSize(NODE_W, NODE_H)
-            when (direction) {
-                LayoutDirection.Right -> LayoutPoint(originX + depth * levelStep, originY + along)
-                LayoutDirection.Left -> LayoutPoint(originX - depth * levelStep - space.w, originY + along)
-                LayoutDirection.Down -> LayoutPoint(originX + along, originY + depth * levelStep)
-                LayoutDirection.Up -> LayoutPoint(originX + along, originY - depth * levelStep - space.h)
-                LayoutDirection.Radial -> LayoutPoint(originX + depth * levelStep, originY + along)
+        val placed = HashSet<String>()
+
+        fun grow(id: String, parentLevel: Float, parentSpan: Float, isRoot: Boolean) {
+            if (!placed.add(id)) return
+            val node = byId[id] ?: return
+            val space = spaceOf(node, measured)
+            val span = if (horizontal) space.w else space.h
+            val own = when (direction) {
+                LayoutDirection.Right -> if (isRoot) originX else parentLevel + parentSpan + levelGap
+                LayoutDirection.Left -> if (isRoot) originX - span else parentLevel - span - levelGap
+                LayoutDirection.Down -> if (isRoot) originY else parentLevel + parentSpan + levelGap
+                LayoutDirection.Up -> if (isRoot) originY - span else parentLevel - span - levelGap
+                LayoutDirection.Radial -> if (isRoot) originX else parentLevel + parentSpan + levelGap
+            }
+            level[id] = own
+            if (node.collapsed) return
+            children[id].orEmpty().forEach { kid -> grow(kid, own, span, isRoot = false) }
+        }
+
+        roots.forEach { root -> grow(root, 0f, 0f, isRoot = true) }
+
+        return level.mapValues { (id, own) ->
+            val along = cross[id] ?: 0f
+            if (horizontal) {
+                LayoutPoint(own, originY + along)
+            } else {
+                LayoutPoint(originX + along, own)
             }
         }
     }

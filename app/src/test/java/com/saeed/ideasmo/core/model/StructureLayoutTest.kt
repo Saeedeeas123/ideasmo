@@ -554,4 +554,111 @@ class StructureLayoutTest {
         assertEquals(0f, left.getValue("root").x + StructureLayout.widthOf(big), 0.01f)
         assertEquals(0f, up.getValue("root").y + StructureLayout.heightOf(big), 0.01f)
     }
+
+    // ---- standard link length and no overlap after an Arrange (v0.11.0) -----
+
+    @Test
+    fun everyLinkIsTheSameLengthAfterArrange() {
+        // Saeed's report: "it gets the direction right but it does not consider the links — there must
+        // be a standard length for the links, with a logical gap". v0.10.0 spaced the levels by the
+        // LARGEST card on the board, so the visible link after a big card was long and after a small
+        // one short. Now every link is exactly one level gap, edge to edge.
+        val root = node("root").copy(w = 400f, h = 150f)
+        val mid = node("mid").copy(w = 160f, h = 80f)
+        val leaf = node("leaf")
+        val nodes = listOf(root, mid, leaf)
+        val links = listOf(link("l1", "root", "mid", 0), link("l2", "mid", "leaf", 0))
+
+        val positions = StructureLayout.arrange(
+            nodes = nodes,
+            links = links,
+            preferredRoots = listOf("root"),
+            direction = LayoutDirection.Right,
+            spacing = LayoutSpacing.Normal,
+        )
+
+        val first = positions.getValue("mid").x - (positions.getValue("root").x + StructureLayout.widthOf(root))
+        val second = positions.getValue("leaf").x - (positions.getValue("mid").x + StructureLayout.widthOf(mid))
+        assertEquals("the link after the big card", LayoutSpacing.Normal.levelGap, first, 0.01f)
+        assertEquals("the link after the small card", LayoutSpacing.Normal.levelGap, second, 0.01f)
+    }
+
+    @Test
+    fun aBranchIsSlidClearOfNodesThatAreNotPartOfIt() {
+        // The branch keeps its own node where it is, so it can land on a node that is not part of it.
+        // Arrange has to move the branch out of the way instead of drawing one card on top of another.
+        val root = node("root", x = 0f, y = 0f)
+        val kid = node("kid", x = 900f, y = 900f)
+        val blocker = node("blocker", x = StructureLayout.NODE_W + LayoutSpacing.Normal.levelGap, y = 0f)
+        val nodes = listOf(root, kid, blocker)
+        val links = listOf(link("l1", "root", "kid"))
+
+        val positions = StructureLayout.arrangeBranch(nodes, links, "root", LayoutDirection.Right)
+
+        assertEquals("the selected node must not move", 0f, positions.getValue("root").x, 0.01f)
+        val kidPos = positions.getValue("kid")
+        val bw = StructureLayout.widthOf(blocker)
+        val bh = StructureLayout.heightOf(blocker)
+        val overlaps = kidPos.x < blocker.x + bw &&
+            kidPos.x + StructureLayout.widthOf(kid) > blocker.x &&
+            kidPos.y < blocker.y + bh &&
+            kidPos.y + StructureLayout.heightOf(kid) > blocker.y
+        assertFalse("the arranged branch must not land on another node", overlaps)
+        assertTrue("it is slid along its cross axis", kidPos.y > blocker.y)
+    }
+
+    @Test
+    fun arrangingTheSameBranchTwiceGivesTheSameResult() {
+        val nodes = listOf(
+            node("root", x = 500f, y = 500f),
+            node("a"),
+            node("b"),
+            node("blocker", x = 700f, y = 500f),
+        )
+        val links = listOf(link("l1", "root", "a", 0), link("l2", "root", "b", 1))
+
+        val first = StructureLayout.arrangeBranch(nodes, links, "root", LayoutDirection.Right)
+        val second = StructureLayout.arrangeBranch(nodes, links, "root", LayoutDirection.Right)
+
+        assertEquals(first.size, second.size)
+        first.forEach { (id, point) ->
+            assertEquals(point.x, second.getValue(id).x, 0.001f)
+            assertEquals(point.y, second.getValue(id).y, 0.001f)
+        }
+    }
+
+    @Test
+    fun theWholeMapArrangeParksLooseNodesClearOfTheMap() {
+        // A node that belongs to no tree used to be left exactly where it was, which is how a loose
+        // node ended up sitting on top of the arranged map in Saeed's screenshot.
+        val root = node("root")
+        val kid = node("kid")
+        val loose = node("loose", x = 0f, y = 0f)
+        val nodes = listOf(root, kid, loose)
+        val links = listOf(link("l1", "root", "kid"))
+
+        val positions = StructureLayout.arrange(
+            nodes = nodes,
+            links = links,
+            preferredRoots = listOf("root"),
+            direction = LayoutDirection.Right,
+            anchorRootAtOrigin = true,
+        )
+
+        assertTrue("the loose node is placed too", positions.containsKey("loose"))
+        val loosePoint = positions.getValue("loose")
+        val mapLeft = positions.filterKeys { it != "loose" }.values.minOf { it.x }
+        assertTrue(
+            "the loose node is parked in a column beside the map",
+            loosePoint.x + StructureLayout.widthOf(loose) <= mapLeft,
+        )
+        val overlapsAnything = positions.filterKeys { it != "loose" }.any { (id, point) ->
+            val other = nodes.first { it.id == id }
+            loosePoint.x < point.x + StructureLayout.widthOf(other) &&
+                loosePoint.x + StructureLayout.widthOf(loose) > point.x &&
+                loosePoint.y < point.y + StructureLayout.heightOf(other) &&
+                loosePoint.y + StructureLayout.heightOf(loose) > point.y
+        }
+        assertFalse("and it does not overlap the map", overlapsAnything)
+    }
 }

@@ -134,11 +134,11 @@ private const val ZOOM_STEP = 0.25f
 private fun zoomStepAt(scale: Float): Float = if (scale <= 0.25f) 0.05f else ZOOM_STEP
 
 /**
- * The width of the docked right-hand panel as a fraction of the screen (Saeed's order: 40%).
- * v0.9.0 clamped a PIXEL count and then converted it to dp, so on a 1080 px screen the panel came out
- * ~130 dp wide — narrow enough that every line of the panel broke into fragments.
+ * How much of the screen the node sheet covers when it slides up from the bottom (Saeed's order:
+ * "a big rectangle comes up that covers 70 % of the screen from the bottom, with the node shown at
+ * its top, fixed").
  */
-private const val PANEL_WIDTH_FRACTION = 0.40f
+private const val SHEET_HEIGHT_FRACTION = 0.70f
 
 private const val MINIMAP_LINGER_MS = 900L
 private const val MINIMAP_W = 200
@@ -190,6 +190,19 @@ private class BoardState {
     var viewportW by mutableStateOf(0f)
     var viewportH by mutableStateOf(0f)
 
+    /**
+     * The screen density, set once by the board.
+     *
+     * This is the conversion the whole board depends on. A node's x/y are **board units**, and one
+     * board unit is one dp at 100% zoom (see [BoardSpace]) — so a node is placed at `x * density`
+     * pixels, and a card is `widthOf(node).dp` wide, which is exactly the same space. v0.10.0 placed
+     * nodes at `x` PIXELS while sizing the cards in dp, so the two were a factor of [density] apart:
+     * the auto-layout reserved ~2.6x less room than the cards actually took (the pile in Saeed's
+     * screenshot), the link lines were drawn to the wrong points, and the resize handles and the
+     * action square were positioned around a rectangle that did not match the card on screen.
+     */
+    var density = 1f
+
     /** True while a node is being dragged, so the board itself does not pan at the same time. */
     var draggingNode by mutableStateOf(false)
 
@@ -214,36 +227,42 @@ private class BoardState {
         offsetY += dy
     }
 
-    fun screenToWorldX(sx: Float): Float = (sx - offsetX) / scale
+    fun screenToWorldX(sx: Float): Float = (sx - offsetX) / (scale * density)
 
-    fun screenToWorldY(sy: Float): Float = (sy - offsetY) / scale
+    fun screenToWorldY(sy: Float): Float = (sy - offsetY) / (scale * density)
 
-    fun worldToScreenX(wx: Float): Float = wx * scale + offsetX
+    fun worldToScreenX(wx: Float): Float = wx * density * scale + offsetX
 
-    fun worldToScreenY(wy: Float): Float = wy * scale + offsetY
+    fun worldToScreenY(wy: Float): Float = wy * density * scale + offsetY
 
     /** 100% zoom, with the content (or the origin, when empty) centred in the viewport. */
     fun resetView(nodes: List<IdeaNode>) {
-        val cx = viewportW / 2f
-        val cy = viewportH / 2f
         scale = 1f
         if (nodes.isEmpty()) {
-            offsetX = cx
-            offsetY = cy
+            offsetX = viewportW / 2f
+            offsetY = viewportH / 2f
         } else {
-            val minX = nodes.minOf { it.x }
-            val maxX = nodes.maxOf { it.x + StructureLayout.widthOf(it) }
-            val minY = nodes.minOf { it.y }
-            val maxY = nodes.maxOf { it.y + StructureLayout.heightOf(it) }
-            offsetX = cx - (minX + maxX) / 2f
-            offsetY = cy - (minY + maxY) / 2f
+            val cx = (nodes.minOf { it.x } + nodes.maxOf { it.x + StructureLayout.widthOf(it) }) / 2f
+            val cy = (nodes.minOf { it.y } + nodes.maxOf { it.y + StructureLayout.heightOf(it) }) / 2f
+            centreOnWorld(cx, cy)
         }
     }
 
     /** Brings a point of board space to the middle of the screen — used for the origin. */
     fun centreOnWorld(wx: Float, wy: Float) {
-        offsetX = viewportW / 2f - wx * scale
-        offsetY = viewportH / 2f - wy * scale
+        centreOnWorldBand(wx, wy, viewportH)
+    }
+
+    /**
+     * Brings a point of board space to the middle of the **top band** of the screen.
+     *
+     * When the node sheet is open it covers the bottom [SHEET_HEIGHT_FRACTION] of the screen, so
+     * centring a node on the whole viewport would hide it behind the sheet. This puts it in the
+     * middle of what is still visible.
+     */
+    fun centreOnWorldBand(wx: Float, wy: Float, bandHeightPx: Float) {
+        offsetX = viewportW / 2f - wx * density * scale
+        offsetY = bandHeightPx / 2f - wy * density * scale
     }
 
     fun screenRectOf(node: IdeaNode): Rect {
@@ -252,8 +271,8 @@ private class BoardState {
         return Rect(
             left,
             top,
-            left + StructureLayout.widthOf(node) * scale,
-            top + StructureLayout.heightOf(node) * scale,
+            left + StructureLayout.widthOf(node) * density * scale,
+            top + StructureLayout.heightOf(node) * density * scale,
         )
     }
 }
@@ -268,6 +287,10 @@ fun BoardScreen(
 ) {
     val context = LocalContext.current
     val board = remember { BoardState() }
+    val density = LocalDensity.current
+    // Board units are dp at 100 % zoom, so the board needs the density for every conversion between
+    // board space and the screen. Set here, once, before anything draws.
+    board.density = density.density
     val clipboard = LocalClipboardManager.current
 
     val pattern = BoardPattern.fromKey(BoardPrefs.patternKey)
@@ -687,7 +710,19 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
             }
 
             NodeActionCatalog.CONNECT -> panel = Panel.Picker(node.id)
-            NodeActionCatalog.MORE -> panel = Panel.NodeInfo(node.id)
+            NodeActionCatalog.MORE -> {
+                panel = Panel.NodeInfo(node.id)
+                // The sheet covers the bottom 70% of the screen, so bring the node into the strip that
+                // stays visible: the sheet shows it at its top, and the board shows it right above it.
+                val owner = NodeStore.byId(node.id)
+                if (owner != null) {
+                    board.centreOnWorldBand(
+                        wx = owner.x + StructureLayout.widthOf(owner) / 2f,
+                        wy = owner.y + StructureLayout.heightOf(owner) / 2f,
+                        bandHeightPx = board.viewportH * (1f - SHEET_HEIGHT_FRACTION),
+                    )
+                }
+            }
 
             NodeActionCatalog.COPY,
             NodeActionCatalog.CUT,
@@ -752,9 +787,9 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
         }
     }
 
-    // 40% of the screen width, in real dp — see PANEL_WIDTH_FRACTION.
-    val panelWidth = with(LocalDensity.current) {
-        (board.viewportW * PANEL_WIDTH_FRACTION).toDp()
+    // 70% of the screen from the bottom, in real dp — see SHEET_HEIGHT_FRACTION.
+    val sheetHeight = with(LocalDensity.current) {
+        (board.viewportH * SHEET_HEIGHT_FRACTION).toDp()
     }
 
     Scaffold(
@@ -1263,13 +1298,13 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                 val nodeH = StructureLayout.heightOf(barsNode)
                 val centreX = board.worldToScreenX(barsNode.x + nodeW / 2f)
                 val centreY = board.worldToScreenY(barsNode.y + nodeH / 2f)
-                NodeActionBars(
+                val widthPx = nodeW * board.density * board.scale
+                val heightPx = nodeH * board.density * board.scale
+                NodeActionBox(
                     node = barsNode,
-                    zoom = board.scale,
                     centreX = centreX,
-                    centreY = centreY,
-                    nodeWidthPx = nodeW * board.scale,
-                    nodeHeightPx = nodeH * board.scale,
+                    nodeTopPx = board.worldToScreenY(barsNode.y),
+                    nodeBottomPx = board.worldToScreenY(barsNode.y + nodeH),
                     viewportWidth = board.viewportW,
                     viewportHeight = board.viewportH,
                     clipboardHasContent = NodeClipboard.hasContent,
@@ -1286,14 +1321,13 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                     },
                     onResizeDone = { tool = NodeTool.None },
                 )
-
                 if (tool == NodeTool.Resize) {
                     NodeResizeOverlay(
                         node = barsNode,
                         centreX = centreX,
                         centreY = centreY,
-                        widthPx = nodeW * board.scale,
-                        heightPx = nodeH * board.scale,
+                        widthPx = widthPx,
+                        heightPx = heightPx,
                         scale = board.scale,
                         viewportWidth = board.viewportW,
                         viewportHeight = board.viewportH,
@@ -1320,12 +1354,21 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
             // ---- panels ----
             when (val open = panel) {
                 is Panel.NodeInfo -> NodeStore.byId(open.id)?.let { node ->
+                    // The sheet: a big rectangle over the bottom 70 % of the screen, with the node
+                    // itself pinned at its top. Behind it a scrim, so it reads as something laid over
+                    // the board — tapping the scrim closes it.
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.5f))
+                            .clickable { panel = null },
+                    )
                     NodePanel(
                         node = node,
                         modifier = Modifier
-                            .align(Alignment.CenterEnd)
-                            .fillMaxHeight()
-                            .width(panelWidth),
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .height(sheetHeight),
                         onClose = { panel = null },
                         onOpenLink = { link -> panel = Panel.LinkInfo(link.id) },
                         onAddLink = { panel = Panel.Picker(node.id) },
@@ -1804,6 +1847,13 @@ private fun NewNodePill(modifier: Modifier = Modifier, onClick: () -> Unit) {
     }
 }
 
+/**
+ * One card on the board.
+ *
+ * The card is placed at `node.x * density` PIXELS — the same space its own dp-sized card occupies —
+ * which is what makes a node's stored coordinates, the auto-layout and the link lines agree with each
+ * other. See [BoardState.density].
+ */
 @Composable
 private fun BoardNode(
     node: IdeaNode,
@@ -1829,11 +1879,15 @@ private fun BoardNode(
     val pill = node.shape == NodeStyle.SHAPE_PILL
     val padH = if (pill) Spacing.xxl else Spacing.m
     val padV = if (pill) Spacing.l else Spacing.m
-    val canCollapse = childCount > 0 || node.collapsed
 
     Card(
         modifier = Modifier
-            .offset { IntOffset(node.x.roundToInt(), node.y.roundToInt()) }
+            .offset {
+                IntOffset(
+                    (node.x * density.density).roundToInt(),
+                    (node.y * density.density).roundToInt(),
+                )
+            }
             .width(StructureLayout.widthOf(node).dp)
             .heightIn(min = StructureLayout.heightOf(node).dp)
             // The card can render TALLER than its stored height (a picture, a long name). Report what
@@ -1865,12 +1919,14 @@ private fun BoardNode(
                     change.consume()
                     // Every selected node moves together, and the live position is read from the
                     // store because the gesture coroutine outlives recomposition.
+                    // The finger moves in screen pixels: divide by the scale AND by the density to
+                    // land in board units, otherwise the node runs away from the finger.
                     moveIds.forEach { id ->
                         val current = NodeStore.byId(id) ?: return@forEach
                         NodeStore.move(
                             id,
-                            current.x + dragAmount.x / board.scale,
-                            current.y + dragAmount.y / board.scale,
+                            current.x + dragAmount.x / (board.scale * board.density),
+                            current.y + dragAmount.y / (board.scale * board.density),
                         )
                     }
                 }
@@ -1885,97 +1941,118 @@ private fun BoardNode(
         },
     ) {
         Column(modifier = Modifier.padding(horizontal = padH, vertical = padV)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (node.isRoot) {
-                    Icon(
-                        imageVector = Icons.Outlined.MyLocation,
-                        contentDescription = stringResource(R.string.node_central),
-                        tint = MaterialTheme.colorScheme.tertiary,
-                        modifier = Modifier.size(Sizes.iconSm),
+            NodeCardBody(
+                node = node,
+                linkCount = linkCount,
+                hiddenBelow = hiddenBelow,
+                childCount = childCount,
+                onToggleCollapse = onToggleCollapse,
+            )
+        }
+    }
+}
+
+/**
+ * What a node looks like — one definition, used by the card on the board **and** by the fixed header
+ * of the node sheet, so the node you see at the top of the sheet is the node you tapped.
+ */
+@Composable
+internal fun NodeCardBody(
+    node: IdeaNode,
+    linkCount: Int,
+    hiddenBelow: Int,
+    childCount: Int,
+    onToggleCollapse: (() -> Unit)? = null,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (node.isRoot) {
+            Icon(
+                imageVector = Icons.Outlined.MyLocation,
+                contentDescription = stringResource(R.string.node_central),
+                tint = MaterialTheme.colorScheme.tertiary,
+                modifier = Modifier.size(Sizes.iconSm),
+            )
+            Spacer(Modifier.width(Spacing.xs))
+        }
+        Text(
+            text = node.name,
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+    }
+    Spacer(Modifier.height(Spacing.s))
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        (1..5).forEach { level ->
+            Box(
+                modifier = Modifier
+                    .padding(end = Spacing.xs)
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (level <= node.priority) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.outline
+                        },
+                    ),
+            )
+        }
+        Spacer(Modifier.width(Spacing.s))
+        if (linkCount > 0) {
+            Text(
+                text = linkCount.toString(),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        if (hiddenBelow > 0) {
+            Spacer(Modifier.width(Spacing.s))
+            Text(
+                text = stringResource(R.string.node_hidden_badge, hiddenBelow),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.tertiary,
+            )
+        }
+        Spacer(Modifier.weight(1f))
+        // The collapse control lives on the card: ⊖ gathers the branch, ⊕ opens it again.
+        if (onToggleCollapse != null && (childCount > 0 || node.collapsed)) {
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surface)
+                    .border(
+                        width = 1.dp,
+                        color = MaterialTheme.colorScheme.outline,
+                        shape = CircleShape,
                     )
-                    Spacer(Modifier.width(Spacing.xs))
-                }
-                Text(
-                    text = node.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-            Spacer(Modifier.height(Spacing.s))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                (1..5).forEach { level ->
-                    Box(
-                        modifier = Modifier
-                            .padding(end = Spacing.xs)
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (level <= node.priority) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.outline
-                                },
-                            ),
-                    )
-                }
-                Spacer(Modifier.width(Spacing.s))
-                if (linkCount > 0) {
-                    Text(
-                        text = linkCount.toString(),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-                if (hiddenBelow > 0) {
-                    Spacer(Modifier.width(Spacing.s))
-                    Text(
-                        text = stringResource(R.string.node_hidden_badge, hiddenBelow),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.tertiary,
-                    )
-                }
-                Spacer(Modifier.weight(1f))
-                // The collapse control lives on the card: ⊖ gathers the branch, ⊕ opens it again.
-                if (canCollapse) {
-                    Box(
-                        modifier = Modifier
-                            .size(28.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.surface)
-                            .border(
-                                width = 1.dp,
-                                color = MaterialTheme.colorScheme.outline,
-                                shape = CircleShape,
-                            )
-                            .clickable(onClick = onToggleCollapse),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = if (node.collapsed) Icons.Outlined.Add else Icons.Outlined.Remove,
-                            contentDescription = stringResource(
-                                if (node.collapsed) R.string.node_expand else R.string.node_collapse,
-                                childCount,
-                            ),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp),
-                        )
-                    }
-                }
-            }
-            if (node.description.isNotBlank()) {
-                Spacer(Modifier.height(Spacing.s))
-                Text(
-                    text = node.description,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
+                    .clickable(onClick = onToggleCollapse),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = if (node.collapsed) Icons.Outlined.Add else Icons.Outlined.Remove,
+                    contentDescription = stringResource(
+                        if (node.collapsed) R.string.node_expand else R.string.node_collapse,
+                        childCount,
+                    ),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp),
                 )
             }
         }
+    }
+    if (node.description.isNotBlank()) {
+        Spacer(Modifier.height(Spacing.s))
+        Text(
+            text = node.description,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

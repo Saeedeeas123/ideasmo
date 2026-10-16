@@ -3,7 +3,7 @@
 An idea processor for Android: capture an idea, give it structure, keep it in one place.
 Personal project of Saeed (`com.saeed.ideasmo`), built entirely on-device.
 
-**Current version: v0.10.0** (versionCode 10)
+**Current version: v0.11.0** (versionCode 11)
 
 ## What it is
 
@@ -81,7 +81,9 @@ DESIGN.md                    the design contract (tokens, screens, decisions, ho
 
 | v0.10.0 | **The square scales with the board** (it is relative to its node at last) and can never lose a bar again — the viewport clamp is one real clamp, and at low zoom the bars drop their labels and become icon-only; **resize handles shrink with the card** and are capped by it (22 dp at 100 %, no more blobs beside a small card); **zoom out to 5 %** (5 % steps below a quarter); the docked node panel is **40 % of the screen** and tinted so it is actually distinguishable from the board; **Arrange moved into the node's own properties** — pick Left/Right/Up/Down for the selected node and only its branch is laid out, with the node itself staying put (the board's Arrange button is gone); the layout reserves the size each card **really measures**, so branches cannot overlap |
 
-## Honest limits (v0.10.0)
+| v0.11.0 | **One board space** — a node's stored position is board units (dp at 100 %), so the auto-layout, the link lines, the resize handles and the action box all agree with the card on screen (v0.10.0 placed nodes at raw pixels while sizing cards in dp, which is what made the cards pile up, the links miss their nodes and the handles cluster); **the action box**: one rectangle above the node holding all sixteen actions in a 6-column grid, never scaling with the zoom; **the node sheet**: More opens a full-width rectangle over the bottom 70 % of the screen with the node itself pinned at its top; **standard link length**: every link after an Arrange is exactly one level gap, edge to edge, and a branch is slid clear of nodes that are not part of it; loose nodes are parked beside the whole-map arrangement |
+
+## Honest limits (v0.11.0)
 
 - **Group** and **Schema** from the reference app are still not built: Schema is deferred on your
   instruction, and Group is waiting on one answer — is a group a *frame that holds* the selected
@@ -96,15 +98,21 @@ DESIGN.md                    the design contract (tokens, screens, decisions, ho
   draws), so a card that grows with its content no longer makes siblings overlap — but the measurement
   only exists for cards the board has already drawn on this run.
 - The clipboard is the **app's own** (nodes, not text) and lives in memory only.
+- **Opening this build re-reads your existing board in the new unit.** Positions used to be treated as
+  raw pixels; they are now board units (dp at 100 %), which is what makes the spacing correct relative
+  to the cards. The effect is that everything spreads out (~2.6x on this phone) and stops overlapping —
+  the stored numbers themselves are not touched, and one *Arrange* re-tidies the map in the new space.
+- The action box is a **fixed size at every zoom**, on purpose: at 5 % it therefore looks large next to
+  a very small node. That is the trade for buttons that are always tappable — the previous proportional
+  square was smaller but unreadable.
 - **Arrange a branch is a command, not a stored property**: the chosen direction is not saved on the
   node, so the project-level *Arrange now* (in the project settings) still lays the whole map out in
   the project direction. Storing a per-branch direction is the open half of the deferred **Schema**
   question.
+- A branch that cannot find clear space after 40 steps (a very dense board) keeps its ideal position
+  instead of moving further; the whole-map Arrange parks loose nodes to the **left** of the result.
 - The board's Arrange button is gone on purpose; the whole-map Arrange now lives only in the project
   settings.
-- Below about **70 % zoom** the action square drops its labels and shows icons only (at that size the
-  labels would be unreadable); below 45 % it stops shrinking so the buttons stay usable, which means
-  at 5 % zoom the square is no longer exactly proportional to a very small node.
 - Arrange is a **tree** layout: dense graphs with many cross-links are tidied along their trees and the
   extra links stay where they are (no force-directed pass yet).
 - Arrange moves the map to the **origin**; if you had deliberately parked a map somewhere else in board
