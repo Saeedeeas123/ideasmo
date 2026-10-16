@@ -108,6 +108,10 @@ class NodeCatalogTest {
         assertEquals(1f, NodeStyle.sizeOf(1f), 0.001f)
         assertEquals(0.8f, NodeStyle.sizeOf(0.31f), 0.001f)
         assertEquals(1.5f, NodeStyle.sizeOf(99f), 0.001f)
+
+        // The presets are real board units now, and a hand-resized card matches none of them.
+        assertEquals("Normal", NodeStyle.presetFor(StructureLayout.NODE_W, StructureLayout.NODE_H)?.label)
+        assertEquals(null, NodeStyle.presetFor(237f, 111f))
     }
 
     @Test
@@ -124,8 +128,10 @@ class NodeCatalogTest {
             y = 0f,
         )
         assertEquals(NodeStyle.SHAPE_ROUNDED, node.shape)
-        assertEquals(1f, node.size, 0.001f)
         assertEquals(null, node.color)
+        // A new node has no explicit size, which means "the default card".
+        assertEquals(0f, node.w, 0.001f)
+        assertEquals(0f, node.h, 0.001f)
         // And a default node keeps the original card geometry.
         assertEquals(StructureLayout.NODE_W, StructureLayout.widthOf(node), 0.001f)
         assertEquals(StructureLayout.NODE_H, StructureLayout.heightOf(node), 0.001f)

@@ -3,7 +3,7 @@
 An idea processor for Android: capture an idea, give it structure, keep it in one place.
 Personal project of Saeed (`com.saeed.ideasmo`), built entirely on-device.
 
-**Current version: v0.8.0** (versionCode 8)
+**Current version: v0.9.0** (versionCode 9)
 
 ## What it is
 
@@ -77,11 +77,20 @@ DESIGN.md                    the design contract (tokens, screens, decisions, ho
 | v0.6.0 | Clickable/editable links (link inspector), node panel (links in/out + branch order), structure layer (central nodes, collapse, 5-direction Arrange), 8 board modes + 6 board themes |
 | v0.7.0 | **Board origin** — a fixed (0, 0) with a marker on the canvas; Arrange now anchors the central node on the origin (deterministic, cannot drift); Origin button; Show-the-origin setting. Fixed the v0.6.0 double-origin drift bug |
 | v0.8.0 | **Node action square** (four bars around the selected node) with 16 node actions from a catalog: rename, image, connect, notes, clipboard (copy/cut/paste), delete, child/sibling/duplicate, **reattach** (re-parent with cycle protection), resize/colour/shape — plus per-node style honoured by the layout, an app node clipboard, and a Details view that copies a node as machine-readable data |
+| v0.9.0 | **Back is a step** (dialog → panel → mode → tool → form → selection → leave); the action square is **relative to its node** (the whole square shifts as one unit); **tools inside the square** — free-form resize with handles on the card, an in-place colour palette and shape picker; per-node `w`/`h` in board units; **the toast is gone** (inline NoticeBar + an always-visible Undo button with a real undo stack); Copy/Cut/Duplicate ask whether **links / sub-links** travel; **multi-select + rubber band + group bar** (drag moves the whole selection); the node panel docks as a **rectangle on the right**; the ⊖/⊕ **collapse** control lives on the card |
 
-## Honest limits (v0.8.0)
+## Honest limits (v0.9.0)
 
-- **Group** and **Schema** from the reference app are not built — Group needs multi-select (which the
-  board does not have yet) and Schema has two plausible meanings. Both are waiting on your answer.
+- **Group** and **Schema** from the reference app are still not built: Schema is deferred on your
+  instruction, and Group is waiting on one answer — is a group a *frame that holds* the selected
+  nodes, or a *merge* of them into one node?
+- The rubber band needs a **long press** on empty board before dragging; nothing on screen says so
+  yet except the Help entry (the board's own hint text mentions it only when the board is empty).
+- Resize handles are drawn on the card and can be partly covered by the bars when a node is very
+  small; the corner handles stay reachable.
+- Undo is **memory-only** and bounded to the last 12 steps; closing the app clears it.
+- A node's height is still an estimate for the auto-layout (the card grows with its content), so a
+  very long note can make a card taller than the space Arrange reserved.
 - The clipboard is the **app's own** (nodes, not text) and lives in memory only.
 - A node's height is still an estimate for the layout (the card grows with its content), so a very
   long note can make a card slightly taller than the space the auto-layout reserved.

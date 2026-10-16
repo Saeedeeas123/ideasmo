@@ -61,9 +61,15 @@ object StructureLayout {
     const val NODE_HALF_H = NODE_H / 2f
 
     /** The card's real size in board units — a node can be resized, and the layout must agree. */
-    fun widthOf(node: IdeaNode): Float = NODE_W * NodeStyle.sizeOf(node.size)
+    fun widthOf(node: IdeaNode): Float = node.width
 
-    fun heightOf(node: IdeaNode): Float = NODE_H * NodeStyle.sizeOf(node.size)
+    fun heightOf(node: IdeaNode): Float = node.height
+
+    /** The smallest and largest card a user can make by dragging a resize handle. */
+    const val MIN_NODE_W = 120f
+    const val MAX_NODE_W = 720f
+    const val MIN_NODE_H = 64f
+    const val MAX_NODE_H = 480f
 
     /**
      * Arranges the trees that start at the central nodes.

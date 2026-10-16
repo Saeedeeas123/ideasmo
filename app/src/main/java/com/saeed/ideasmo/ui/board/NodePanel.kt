@@ -88,10 +88,12 @@ internal fun NodePanel(
     val children = NodeStore.childrenOf(node.id)
 
     Surface(
-        modifier = modifier
-            .fillMaxSize()
-            .imePadding(),
+        // The panel is docked to the right edge by the caller: a tall rectangle that leaves the
+        // board visible on the left, as drawn in Saeed's sketch.
+        modifier = modifier.imePadding(),
         color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(topStart = Radius.large, bottomStart = Radius.large),
+        tonalElevation = 3.dp,
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             Row(

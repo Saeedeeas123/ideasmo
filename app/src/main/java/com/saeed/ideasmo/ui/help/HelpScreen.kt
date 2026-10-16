@@ -53,6 +53,11 @@ fun HelpScreen(onBack: () -> Unit) {
         stringResource(R.string.help_gesture_select),
         stringResource(R.string.help_gesture_create),
         stringResource(R.string.help_gesture_list),
+        stringResource(R.string.help_gesture_band),
+        stringResource(R.string.help_gesture_multi),
+        stringResource(R.string.help_gesture_back),
+        stringResource(R.string.help_gesture_undo),
+        stringResource(R.string.help_gesture_tools),
     )
     val families = LinkCatalog.byFamily()
     val linkEditing = listOf(

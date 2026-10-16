@@ -35,8 +35,9 @@ import com.saeed.ideasmo.core.model.NodeStyle
 import com.saeed.ideasmo.ui.components.ChoiceChip
 import com.saeed.ideasmo.ui.components.SectionTitle
 import com.saeed.ideasmo.ui.theme.Radius
+import com.saeed.ideasmo.ui.theme.Sizes
 import com.saeed.ideasmo.ui.theme.Spacing
-
+import kotlin.math.roundToInt
 /**
  * The node's style: size, colour and shape.
  *
@@ -48,7 +49,7 @@ import com.saeed.ideasmo.ui.theme.Spacing
 @Composable
 internal fun NodeStylePanel(
     node: IdeaNode,
-    onSize: (Float) -> Unit,
+    onSize: (Float, Float) -> Unit,
     onColor: (String?) -> Unit,
     onShape: (String) -> Unit,
     onClose: () -> Unit,
@@ -107,18 +108,20 @@ internal fun NodeStylePanel(
                         NodeStyle.SIZES.forEach { option ->
                             ChoiceChip(
                                 text = option.label,
-                                selected = option.value == NodeStyle.sizeOf(node.size),
-                                onClick = { onSize(option.value) },
+                                selected = NodeStyle.presetFor(node.width, node.height)?.label == option.label,
+                                onClick = { onSize(option.w, option.h) },
                             )
                         }
                     }
                 }
                 item(key = "size_detail") {
                     Text(
-                        text = NodeStyle.SIZES
-                            .firstOrNull { it.value == NodeStyle.sizeOf(node.size) }
-                            ?.detail
-                            ?: "",
+                        text = NodeStyle.presetFor(node.width, node.height)?.detail
+                            ?: stringResource(
+                                R.string.style_size_custom,
+                                node.width.roundToInt(),
+                                node.height.roundToInt(),
+                            ),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = Spacing.s),

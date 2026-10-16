@@ -40,11 +40,22 @@ data class IdeaNode(
     val color: String? = null,
     /** Card shape key from [NodeStyle]. */
     val shape: String = NodeStyle.SHAPE_ROUNDED,
-    /** Card size multiplier from [NodeStyle.SIZES]; 1.0 is the original card. */
-    val size: Float = 1f,
+    /**
+     * Explicit card size in board units. 0 means "use the default card" ([StructureLayout.NODE_W] /
+     * [StructureLayout.NODE_H]). Free-form resizing writes real numbers here, so a card can be any
+     * size — the auto-layout measures these values.
+     */
+    val w: Float = 0f,
+    val h: Float = 0f,
     /** Last time anything about the node changed — useful for sync and for the model layer. */
     val updatedAt: Long = 0L,
-)
+) {
+    /** The card's width in board units, clamped to something a finger can still grab. */
+    val width: Float get() = if (w > 0f) w.coerceIn(StructureLayout.MIN_NODE_W, StructureLayout.MAX_NODE_W) else StructureLayout.NODE_W
+
+    /** The card's height in board units. */
+    val height: Float get() = if (h > 0f) h.coerceIn(StructureLayout.MIN_NODE_H, StructureLayout.MAX_NODE_H) else StructureLayout.NODE_H
+}
 
 /**
  * A typed, optionally directed relation between two nodes.
@@ -98,6 +109,21 @@ data class LinkView(
     val displayLabel: String,
     /** True when the link leaves [nodeId], false when it arrives at it. */
     val outgoing: Boolean,
+)
+
+/** A node together with part of its branch — what Copy / Cut / Duplicate / Paste move around. */
+data class NodeFragment(
+    val rootId: String,
+    val nodes: List<IdeaNode>,
+    val links: List<NodeLink>,
+) {
+    val isEmpty: Boolean get() = nodes.isEmpty()
+}
+
+/** Nodes and links removed together, kept so one Undo can put all of it back. */
+data class RemovedBundle(
+    val nodes: List<IdeaNode>,
+    val links: List<NodeLink>,
 )
 
 /**
@@ -173,6 +199,96 @@ object NodeStore {
     fun isLinked(a: String, b: String, type: String? = null): Boolean =
         linkItems.any { it.connects(a, b) && (type == null || it.type == type) }
 
+    // ---- fragments: a node together with part of its branch -----------------
+
+    /**
+     * Everything that would travel with a Copy / Cut / Duplicate of [nodeId]:
+     *
+     * - neither option: just the node;
+     * - [withLinks]: the node plus its direct children and the links that join them;
+     * - [withSubLinks]: the node plus its whole subtree and every link inside it.
+     *
+     * Links are only included when **both** ends are in the fragment, so a copy can never point at a
+     * node that was not copied.
+     */
+    fun fragmentOf(nodeId: String, withLinks: Boolean, withSubLinks: Boolean): NodeFragment? =
+        FragmentBuilder.build(nodeId, items, linkItems, withLinks, withSubLinks)
+
+    /**
+     * Inserts a fragment as fresh data: new ids for every node and every link, links rewired to the
+     * new ids, and the fragment's root placed at ([atX], [atY]). Returns the new root's id.
+     */
+    fun insertFragment(context: Context, fragment: NodeFragment, atX: Float, atY: Float, kind: String): String? {
+        val root = fragment.nodes.firstOrNull { it.id == fragment.rootId } ?: return null
+        val now = System.currentTimeMillis()
+        val idMap = HashMap<String, String>()
+        fragment.nodes.forEach { idMap[it.id] = newId() }
+        fragment.nodes.forEach { node ->
+            val dx = node.x - root.x
+            val dy = node.y - root.y
+            items.add(
+                node.copy(
+                    id = idMap.getValue(node.id),
+                    kind = kind,
+                    x = atX + dx,
+                    y = atY + dy,
+                    isRoot = false,
+                    collapsed = false,
+                    createdAt = now,
+                    updatedAt = now,
+                ),
+            )
+        }
+        fragment.links.forEach { link ->
+            val from = idMap[link.fromId] ?: return@forEach
+            val to = idMap[link.toId] ?: return@forEach
+            linkItems.add(
+                link.copy(
+                    id = newId(),
+                    fromId = from,
+                    toId = to,
+                    order = linksOut(from).size,
+                    createdAt = now,
+                ),
+            )
+        }
+        persist(context)
+        AppLog.i(
+            "Fragment",
+            "inserted " + fragment.nodes.size + " node(s) / " + fragment.links.size + " link(s) at (" +
+                atX.toInt() + "," + atY.toInt() + ")",
+        )
+        return idMap[root.id]
+    }
+
+    /** Removes several nodes (and every link touching them) as one bundle, for Undo. */
+    fun removeNodes(context: Context, ids: Collection<String>): RemovedBundle? {
+        val wanted = ids.toSet()
+        val removedNodes = items.filter { it.id in wanted }
+        if (removedNodes.isEmpty()) return null
+        val removedLinks = linkItems.filter { it.fromId in wanted || it.toId in wanted }
+        items.removeAll(removedNodes)
+        linkItems.removeAll(removedLinks)
+        persist(context)
+        AppLog.i(
+            "Node",
+            "removed " + removedNodes.size + " node(s) and " + removedLinks.size + " link(s)",
+        )
+        return RemovedBundle(removedNodes, removedLinks)
+    }
+
+    /** Puts a bundle removed by [removeNodes] back. */
+    fun restoreBundle(context: Context, bundle: RemovedBundle) {
+        bundle.nodes.forEach { node -> if (byId(node.id) == null) items.add(node) }
+        bundle.links.forEach { link ->
+            if (byId(link.fromId) != null && byId(link.toId) != null && linkItems.none { it.id == link.id }) {
+                linkItems.add(link)
+            }
+        }
+        persist(context)
+        AppLog.i("Node", "restored " + bundle.nodes.size + " node(s)")
+    }
+
     // ---- editing one node ---------------------------------------------------
 
     /** Replaces a node with an edited copy, stamps `updatedAt` and persists. */
@@ -188,7 +304,7 @@ object NodeStore {
         AppLog.i(
             "Node",
             "node updated: '" + stamped.name + "' (" + stamped.id + ") color=" + (stamped.color ?: "default") +
-                " shape=" + stamped.shape + " size=" + stamped.size +
+                " size=" + stamped.width.toInt() + "x" + stamped.height.toInt() +
                 " notes=" + stamped.description.length + "ch hasPic=" + (stamped.picUri != null),
         )
         return true
@@ -215,7 +331,8 @@ object NodeStore {
         out.appendLine("priority: " + node.priority)
         out.appendLine("color: " + (node.color ?: "default"))
         out.appendLine("shape: " + node.shape)
-        out.appendLine("size: " + node.size)
+        out.appendLine("width: " + node.width.toInt() + " board units")
+        out.appendLine("height: " + node.height.toInt() + " board units")
         out.appendLine("central: " + node.isRoot)
         out.appendLine("collapsed: " + node.collapsed)
         out.appendLine("hasPicture: " + (node.picUri != null))
@@ -427,7 +544,21 @@ object NodeStore {
                         collapsed = o.optBoolean("collapsed", false),
                         color = if (o.has("color") && !o.isNull("color")) o.optString("color") else null,
                         shape = if (o.has("shape")) o.optString("shape") else NodeStyle.SHAPE_ROUNDED,
-                        size = NodeStyle.sizeOf(o.optDouble("size", 1.0).toFloat()),
+                        // v0.8.0 stored a size multiplier; v0.9.0 stores real board units. Migrate.
+                        w = if (o.has("w") && o.optDouble("w", 0.0) > 0.0) {
+                            o.optDouble("w").toFloat()
+                        } else if (o.has("size")) {
+                            StructureLayout.NODE_W * NodeStyle.sizeOf(o.optDouble("size", 1.0).toFloat())
+                        } else {
+                            0f
+                        },
+                        h = if (o.has("h") && o.optDouble("h", 0.0) > 0.0) {
+                            o.optDouble("h").toFloat()
+                        } else if (o.has("size")) {
+                            StructureLayout.NODE_H * NodeStyle.sizeOf(o.optDouble("size", 1.0).toFloat())
+                        } else {
+                            0f
+                        },
                         updatedAt = o.optLong("updatedAt", 0L),
                     ),
                 )
@@ -504,6 +635,17 @@ object NodeStore {
         val index = items.indexOfFirst { it.id == id }
         if (index >= 0) {
             items[index] = items[index].copy(x = x, y = y)
+        }
+    }
+
+    /**
+     * Memory-only resize, used on every frame of a resize drag.
+     * [persist] is called once when the finger lifts, so resizing never hammers the disk.
+     */
+    fun resize(id: String, w: Float, h: Float, x: Float, y: Float) {
+        val index = items.indexOfFirst { it.id == id }
+        if (index >= 0) {
+            items[index] = items[index].copy(w = w, h = h, x = x, y = y)
         }
     }
 
@@ -632,7 +774,8 @@ object NodeStore {
                 o.put("collapsed", n.collapsed)
                 o.put("color", n.color ?: JSONObject.NULL)
                 o.put("shape", n.shape)
-                o.put("size", n.size.toDouble())
+                o.put("w", n.w.toDouble())
+                o.put("h", n.h.toDouble())
                 o.put("updatedAt", n.updatedAt)
                 nodesArray.put(o)
             }

@@ -25,8 +25,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -55,7 +53,6 @@ enum class ProjectEntry(@StringRes val labelRes: Int, val creates: Boolean) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProjectScreen(
-    snackbarHostState: SnackbarHostState,
     onBack: () -> Unit,
     onEntry: (ProjectEntry) -> Unit,
 ) {
@@ -78,7 +75,6 @@ fun ProjectScreen(
                 },
             )
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { inner ->
         Column(
             modifier = Modifier

@@ -376,8 +376,8 @@ class StructureLayoutTest {
     fun aResizedNodeGetsItsOwnSpaceInTheLayout() {
         // Sizes are per node, so both the sibling axis and the step between levels have to follow
         // the real card sizes — otherwise a large card would be laid out on top of its neighbour.
-        val root = node("root").copy(size = 1.5f)
-        val small = node("a").copy(size = 0.8f)
+        val root = node("root").copy(w = 300f, h = 144f)
+        val small = node("a").copy(w = 160f, h = 77f)
         val other = node("b")
         val nodes = listOf(root, small, other)
         val links = listOf(link("l1", "root", "a", 0), link("l2", "root", "b", 1))
@@ -404,7 +404,7 @@ class StructureLayoutTest {
 
     @Test
     fun aResizedCentralNodeIsStillCentredOnTheOrigin() {
-        val nodes = listOf(node("root").copy(size = 1.25f), node("a"), node("b"))
+        val nodes = listOf(node("root").copy(w = 250f, h = 120f), node("a"), node("b"))
         val links = listOf(link("l1", "root", "a"), link("l2", "root", "b"))
 
         val positions = StructureLayout.arrange(

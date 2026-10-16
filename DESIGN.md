@@ -344,6 +344,64 @@ shape the language-model layer will read.
   guessing wrong would put a destructive button under the user's thumb.
 - The **pencil** shortcut was left out because it only duplicates the top bar's Text.
 
+### 6.9 Fixes and the second round of node work (v0.9.0)
+
+Saeed's report after using v0.8.0 on the device, and what was done about each item:
+
+**1. Back did not go back one step.** It left the board entirely. The board now installs its own
+`BackHandler` and unwinds in order: dialog → panel → pending mode (connect / reattach) → tool →
+node form → selection → and only then leaves the screen. So back inside the node stage returns to
+the board, as he asked.
+
+**2. The square flew apart when the board moved.** Each bar had been clamped to the viewport on its
+own, so panning let them detach and stick to different edges. Now every bar is placed from the
+**node's centre** and, when the square would leave the screen, **the whole square is shifted as one
+unit** — the shape is preserved and the bars stay with their node while panning, zooming or dragging.
+
+**3. The tools must live inside the square.** Resize, Colour and Shape no longer navigate to a full
+screen. Tapping one turns the **bottom bar into the tool**:
+- **Resize** — eight handles appear on the card (corners change both dimensions, edges change one;
+  dragging a left/top handle moves the node so the opposite edge stays put), and the bar shows the
+  live size in board units with **Done**. Free-form, as ordered.
+- **Colour** — a palette of the five theme roles plus the default, right there.
+- **Shape** — the four shapes, right there, each with a preview.
+The Node style panel still exists (reachable from More) for the presets and the written descriptions.
+
+**4. Free-form size is real data.** `IdeaNode.size` (a multiplier) was replaced by `w`/`h` in **board
+units**; files written by v0.8.0 are migrated on load. The layout engine, link trimming, the minimap
+and fit-to-view all measure the real card, and resize writes the store once per gesture (never per
+frame).
+
+**5. The floating message bar is gone.** Saeed's order: the toast was more annoying than useful. It
+was also the only way back from a delete, so it was replaced by two better things: an inline
+**NoticeBar** that sits in the layout (pending modes, refusals — never covering the board) and a
+bounded **UndoStack** behind an always-visible **Undo** button in the toolbar, which names what it
+will put back. A message is no longer the only guarantee that work can be recovered.
+
+**6. Copy / Cut / Duplicate ask what travels.** A dialog with two ticks — **its links** (the nodes it
+points at) and **its sub-links** (the whole branch below it) — as ordered. Sub-links imply links, so
+the dialog can never offer an impossible combination, and a leaf node skips the dialog because there
+is nothing to choose. A link only travels when **both** its ends travel, so a copy can never point at
+a node that stayed behind. The clipboard now holds a fragment (nodes + links) instead of one node.
+
+**7. More opens a rectangular panel from the right.** The node panel is docked to the right edge, full
+height, rounded on its left side, leaving the board visible — as drawn in his sketch. It still holds
+links out/in, branch order, structure controls and Details.
+
+**8. Multi-select, rubber band and the group bar.** Selection is a list now: one node shows the
+square, two or more show a **group bar** (count · Copy · Cut · Duplicate · Delete · nudge the whole
+set · Clear). **Long-press the empty board** to draw a rubber band; **long-press a node** to toggle it
+in or out of the selection; tapping inside an existing group also toggles. Dragging one selected node
+moves **all** of them. Group operations respect the same fragment rules.
+
+**9. The ⊖ / ⊕ control is on the card.** Saeed clarified that the minus button in the screenshot is
+**collapse**, not delete: the card now carries a small circular control — ⊖ gathers the branch, ⊕
+opens it again, and the card shows how many nodes are hidden.
+
+**10. Schema — deferred on purpose.** He said to leave the direction/structure question for later, so
+nothing was guessed at. **Group** is still open: multi-select now exists, so the next question is
+whether a group is a frame that holds the selected nodes or a merge into one node.
+
 ## 7. Assets
 
 - **Icons:** `material-icons-extended` 1.7.2 (local, no download). Outlined for chrome.

@@ -1,6 +1,7 @@
 package com.saeed.ideasmo.ui.board
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,11 +12,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Undo
 import androidx.compose.material.icons.outlined.AccountTree
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ContentCut
 import androidx.compose.material.icons.outlined.ContentPaste
@@ -44,26 +47,40 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.saeed.ideasmo.R
+import com.saeed.ideasmo.core.model.IdeaNode
+import com.saeed.ideasmo.core.model.LinkColor
 import com.saeed.ideasmo.core.model.NodeAction
 import com.saeed.ideasmo.core.model.NodeActionCatalog
 import com.saeed.ideasmo.core.model.NodeActionGroup
+import com.saeed.ideasmo.core.model.NodeStyle
+import com.saeed.ideasmo.core.model.StructureLayout
 import com.saeed.ideasmo.ui.theme.Radius
 import com.saeed.ideasmo.ui.theme.Spacing
 import kotlin.math.max
 import kotlin.math.roundToInt
 
+/** Which tool the bottom bar is currently showing. */
+internal enum class NodeTool { None, Resize, Colour, Shape }
+
 /**
- * The node action square: four bars — top, left, right, bottom — that form a square around the
- * selected node, exactly the arrangement in the reference app Saeed sent.
+ * The node action square: four bars — top, left, right, bottom — around the selected node.
  *
- * The bars are built **from [NodeActionCatalog]**, not from hand-placed buttons, so every action has
- * one id, one label and one machine-readable description, and adding an action means adding one
- * catalogue entry. The square lives in **screen space**, not in the board's transformed layer, so
- * the buttons keep a real 48 dp touch target at every zoom level, and it is centred on the node with
- * a minimum size so it never collapses into an unreadable cluster.
+ * Two rules make it behave:
+ *
+ * 1. **Everything is relative to the selected node.** The bars are placed from the node's centre and
+ *    the whole square is shifted **as one unit** when it would leave the screen, so it keeps its
+ *    shape and stays attached to its node while the board is panned, zoomed or the node is dragged.
+ *    (v0.8.0 clamped each bar on its own, which let them fly apart — Saeed's report.)
+ * 2. **The tools live inside the square.** The bottom bar is not a menu that navigates away: tapping
+ *    Resize, Colour or Shape turns that same bar into the tool — resize readout with handles on the
+ *    card, a colour palette, or the shape picker.
+ *
+ * The bars are built from [NodeActionCatalog], so every action has one id, one label and one
+ * machine-readable description, and adding an action means adding one catalogue entry.
  */
 @Composable
 internal fun NodeActionBars(
+    node: IdeaNode,
     centreX: Float,
     centreY: Float,
     nodeWidthPx: Float,
@@ -71,13 +88,20 @@ internal fun NodeActionBars(
     viewportWidth: Float,
     viewportHeight: Float,
     clipboardHasContent: Boolean,
+    tool: NodeTool,
     onAction: (String) -> Unit,
+    onTool: (NodeTool) -> Unit,
+    onColor: (String?) -> Unit,
+    onShape: (String) -> Unit,
+    onResizeDone: () -> Unit,
 ) {
     val density = LocalDensity.current
     val itemW = with(density) { ITEM_W.toPx() }
     val itemH = with(density) { ITEM_H.toPx() }
+    val smallW = with(density) { SMALL_W.toPx() }
     val barPad = with(density) { BAR_PAD.toPx() }
     val gap = with(density) { BAR_GAP.toPx() }
+    val margin = with(density) { SCREEN_MARGIN.toPx() }
 
     val top = NodeActionCatalog.byGroup(NodeActionGroup.Content)
     val left = NodeActionCatalog.byGroup(NodeActionGroup.Clipboard)
@@ -85,21 +109,49 @@ internal fun NodeActionBars(
     val bottom = NodeActionCatalog.byGroup(NodeActionGroup.Style)
 
     val topW = itemW * top.size + barPad * 2
-    val bottomW = itemW * bottom.size + barPad * 2
     val barH = itemH + barPad * 2
     val sideW = itemW + barPad * 2
     val leftH = itemH * left.size + barPad * 2
     val rightH = itemH * right.size + barPad * 2
+    val bottomW = when (tool) {
+        NodeTool.Colour -> smallW * (NodeStyle.COLORS.size + 2) + barPad * 2
+        NodeTool.Shape -> itemW * (NodeStyle.SHAPES.size + 1) + barPad * 2
+        NodeTool.Resize -> smallW * 3 + barPad * 2
+        NodeTool.None -> itemW * bottom.size + barPad * 2
+    }
 
     val halfW = max(nodeWidthPx / 2f, max(topW, bottomW) / 2f) + gap
     val halfH = max(nodeHeightPx / 2f, max(leftH, rightH) / 2f) + gap
 
-    val edge = gap / 2f
-    fun clampX(value: Float, width: Float) =
-        value.coerceIn(edge, max(edge, viewportWidth - width - edge))
+    // Ideal positions, all measured from the node's centre.
+    var topX = centreX - topW / 2f
+    var topY = centreY - halfH - barH
+    var bottomX = centreX - bottomW / 2f
+    var bottomY = centreY + halfH
+    var leftX = centreX - halfW - sideW
+    var leftY = centreY - leftH / 2f
+    var rightX = centreX + halfW
+    var rightY = centreY - rightH / 2f
 
-    fun clampY(value: Float, height: Float) =
-        value.coerceIn(edge, max(edge, viewportHeight - height - edge))
+    // ONE shift for the whole square: the shape is preserved and the bars stay with their node.
+    val squareLeft = minOf(leftX, topX, bottomX)
+    val squareRight = maxOf(rightX + sideW, topX + topW, bottomX + bottomW)
+    val squareTop = minOf(topY, leftY, rightY)
+    val squareBottom = maxOf(bottomY + barH, leftY + leftH, rightY + rightH)
+    var dx = 0f
+    var dy = 0f
+    if (squareLeft < margin) dx = margin - squareLeft
+    if (squareRight + dx > viewportWidth - margin) dx = (viewportWidth - margin) - squareRight
+    if (squareTop < margin) dy = margin - squareTop
+    if (squareBottom + dy > viewportHeight - margin) dy = (viewportHeight - margin) - squareBottom
+    topX += dx
+    topY += dy
+    bottomX += dx
+    bottomY += dy
+    leftX += dx
+    leftY += dy
+    rightX += dx
+    rightY += dy
 
     Box(
         modifier = Modifier.size(
@@ -107,78 +159,114 @@ internal fun NodeActionBars(
             height = with(density) { viewportHeight.toDp() },
         ),
     ) {
-        NodeBar(
-            modifier = Modifier.offset {
-                IntOffset(
-                    clampX(centreX - topW / 2f, topW).roundToInt(),
-                    clampY(centreY - halfH - barH, barH).roundToInt(),
-                )
-            },
-        ) {
+        NodeBar(modifier = Modifier.offset { IntOffset(topX.roundToInt(), topY.roundToInt()) }) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 top.forEach { action ->
                     BarButton(
                         action = action,
                         enabled = true,
+                        selected = false,
                         onClick = { onAction(action.key) },
                     )
                 }
             }
         }
 
-        NodeBar(
-            modifier = Modifier.offset {
-                IntOffset(
-                    clampX(centreX - topW / 2f, bottomW).roundToInt(),
-                    clampY(centreY + halfH, barH).roundToInt(),
-                )
-            },
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                bottom.forEach { action ->
-                    BarButton(
-                        action = action,
-                        enabled = true,
-                        onClick = { onAction(action.key) },
-                    )
-                }
-            }
-        }
-
-        NodeBar(
-            modifier = Modifier.offset {
-                IntOffset(
-                    clampX(centreX - halfW - sideW, sideW).roundToInt(),
-                    clampY(centreY - leftH / 2f, leftH).roundToInt(),
-                )
-            },
-        ) {
+        NodeBar(modifier = Modifier.offset { IntOffset(leftX.roundToInt(), leftY.roundToInt()) }) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 left.forEach { action ->
                     BarButton(
                         action = action,
                         // Paste is honest about the empty clipboard instead of failing silently.
                         enabled = action.key != NodeActionCatalog.PASTE || clipboardHasContent,
+                        selected = false,
                         onClick = { onAction(action.key) },
                     )
                 }
             }
         }
 
-        NodeBar(
-            modifier = Modifier.offset {
-                IntOffset(
-                    clampX(centreX + halfW, sideW).roundToInt(),
-                    clampY(centreY - rightH / 2f, rightH).roundToInt(),
-                )
-            },
-        ) {
+        NodeBar(modifier = Modifier.offset { IntOffset(rightX.roundToInt(), rightY.roundToInt()) }) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 right.forEach { action ->
                     BarButton(
                         action = action,
                         enabled = true,
+                        selected = false,
                         onClick = { onAction(action.key) },
+                    )
+                }
+            }
+        }
+
+        // The bottom bar: either the three style actions, or the tool they opened.
+        NodeBar(modifier = Modifier.offset { IntOffset(bottomX.roundToInt(), bottomY.roundToInt()) }) {
+            when (tool) {
+                NodeTool.None -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    bottom.forEach { action ->
+                        BarButton(
+                            action = action,
+                            enabled = true,
+                            selected = false,
+                            onClick = { onAction(action.key) },
+                        )
+                    }
+                }
+
+                NodeTool.Colour -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    SwatchButton(
+                        colour = MaterialTheme.colorScheme.surfaceVariant,
+                        selected = node.color == null,
+                        onClick = { onColor(null) },
+                    )
+                    NodeStyle.COLORS.forEach { option ->
+                        val role = LinkColor.values().firstOrNull { it.name.equals(option.key, true) }
+                        SwatchButton(
+                            colour = if (role != null) {
+                                themeRoleColor(MaterialTheme.colorScheme, role)
+                            } else {
+                                MaterialTheme.colorScheme.outline
+                            },
+                            selected = node.color == option.key,
+                            onClick = { onColor(option.key) },
+                        )
+                    }
+                    ToolClose(onClick = { onTool(NodeTool.None) })
+                }
+
+                NodeTool.Shape -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    NodeStyle.SHAPES.forEach { option ->
+                        ShapeButton(
+                            shapeKey = option.key,
+                            label = option.label,
+                            selected = node.shape == option.key,
+                            onClick = { onShape(option.key) },
+                        )
+                    }
+                    ToolClose(onClick = { onTool(NodeTool.None) })
+                }
+
+                NodeTool.Resize -> Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.s),
+                ) {
+                    Text(
+                        text = stringResource(
+                            R.string.resize_readout,
+                            StructureLayout.widthOf(node).roundToInt(),
+                            StructureLayout.heightOf(node).roundToInt(),
+                        ),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = stringResource(R.string.resize_done),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(Radius.small))
+                            .clickable(onClick = onResizeDone)
+                            .padding(horizontal = Spacing.m, vertical = Spacing.s),
                     )
                 }
             }
@@ -186,7 +274,7 @@ internal fun NodeActionBars(
     }
 }
 
-/** One bar of the square: a rounded tonal surface, no shadow, 1 dp outline. */
+/** One bar of the square: a rounded tonal surface, no shadow, a 1 dp outline. */
 @Composable
 private fun NodeBar(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     Surface(
@@ -207,6 +295,7 @@ private fun NodeBar(modifier: Modifier = Modifier, content: @Composable () -> Un
 private fun BarButton(
     action: NodeAction,
     enabled: Boolean,
+    selected: Boolean,
     onClick: () -> Unit,
 ) {
     Column(
@@ -221,10 +310,10 @@ private fun BarButton(
         Icon(
             imageVector = actionIcon(action.key),
             contentDescription = stringResource(actionLabelRes(action.key)),
-            tint = if (enabled) {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            } else {
-                MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+            tint = when {
+                !enabled -> MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                selected -> MaterialTheme.colorScheme.primary
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
             },
             modifier = Modifier.size(22.dp),
         )
@@ -232,10 +321,10 @@ private fun BarButton(
         Text(
             text = stringResource(actionLabelRes(action.key)),
             style = MaterialTheme.typography.labelSmall,
-            color = if (enabled) {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            } else {
-                MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+            color = when {
+                !enabled -> MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                selected -> MaterialTheme.colorScheme.primary
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
             },
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -243,11 +332,97 @@ private fun BarButton(
     }
 }
 
+/** A colour swatch inside the palette strip. */
+@Composable
+private fun SwatchButton(colour: androidx.compose.ui.graphics.Color, selected: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(SMALL_W, ITEM_H)
+            .clip(RoundedCornerShape(Radius.small))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(if (selected) 30.dp else 24.dp)
+                .clip(CircleShape)
+                .background(colour)
+                .then(
+                    if (selected) {
+                        Modifier.background(MaterialTheme.colorScheme.primary.copy(alpha = 0.25f), CircleShape)
+                    } else {
+                        Modifier
+                    },
+                ),
+        )
+    }
+}
+
+/** A shape option inside the shape strip: a small preview of the shape. */
+@Composable
+private fun ShapeButton(shapeKey: String, label: String, selected: Boolean, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .size(ITEM_W, ITEM_H)
+            .clip(RoundedCornerShape(Radius.small))
+            .clickable(onClick = onClick)
+            .padding(vertical = Spacing.xs),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(width = 34.dp, height = 22.dp)
+                .clip(nodeShapeOf(shapeKey))
+                .background(
+                    if (selected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                ),
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (selected) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/** Leaves a tool and puts the style actions back in the bottom bar. */
+@Composable
+private fun ToolClose(onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(SMALL_W, ITEM_H)
+            .clip(RoundedCornerShape(Radius.small))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.Close,
+            contentDescription = stringResource(R.string.link_close),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(20.dp),
+        )
+    }
+}
+
 /** Item size, in dp. Fixed so the square has a predictable footprint on any screen. */
 private val ITEM_W = 62.dp
 private val ITEM_H = 60.dp
+private val SMALL_W = 44.dp
 private val BAR_PAD = 4.dp
 private val BAR_GAP = 10.dp
+private val SCREEN_MARGIN = 6.dp
 
 /** The label shown on the button — the catalogue's own labels live in strings.xml by key. */
 private fun actionLabelRes(key: String): Int = when (key) {

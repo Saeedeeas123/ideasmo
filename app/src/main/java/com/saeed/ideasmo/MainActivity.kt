@@ -6,16 +6,16 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -25,6 +25,7 @@ import com.saeed.ideasmo.core.model.NodeStore
 import com.saeed.ideasmo.core.prefs.BoardPrefs
 import com.saeed.ideasmo.core.prefs.ThemePrefs
 import com.saeed.ideasmo.ui.board.BoardScreen
+import com.saeed.ideasmo.ui.components.NoticeBar
 import com.saeed.ideasmo.ui.help.HelpScreen
 import com.saeed.ideasmo.ui.home.HomeEntry
 import com.saeed.ideasmo.ui.home.HomeScreen
@@ -33,7 +34,6 @@ import com.saeed.ideasmo.ui.project.ProjectEntry
 import com.saeed.ideasmo.ui.project.ProjectScreen
 import com.saeed.ideasmo.ui.settings.SettingsScreen
 import com.saeed.ideasmo.ui.theme.IdeasmoTheme
-import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
@@ -91,8 +91,10 @@ private sealed interface Screen {
 @Composable
 private fun IdeasmoApp() {
     val context = LocalContext.current
-    val snackbarHostState = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
+
+    // Everything that used to be a floating toast is an inline strip now, owned here so every
+    // screen reports the same way. See NoticeBar.
+    var notice by remember { mutableStateOf<String?>(null) }
 
     var darkOverride by remember { mutableStateOf(ThemePrefs.load(context)) }
     val isDark = darkOverride ?: isSystemInDarkTheme()
@@ -116,31 +118,28 @@ private fun IdeasmoApp() {
         val next = !isDark
         darkOverride = next
         ThemePrefs.save(context, next)
-        scope.launch {
-            snackbarHostState.showSnackbar(
-                context.getString(if (next) R.string.theme_is_night else R.string.theme_is_day),
-            )
-        }
+        notice = context.getString(if (next) R.string.theme_is_night else R.string.theme_is_day)
     }
 
     val notBuilt: (String) -> Unit = { label ->
         AppLog.i("Nav", "entry tapped: " + label + " (not built)")
-        scope.launch {
-            snackbarHostState.showSnackbar(context.getString(R.string.not_built_yet, label))
-        }
+        notice = context.getString(R.string.not_built_yet, label)
     }
 
     BackHandler(enabled = backStack.size > 1) { pop() }
 
     IdeasmoTheme(darkTheme = isDark) {
-        when (current) {
+        // The screen fills the space; anything the app has to say sits below it, in the layout —
+        // never floating over the content.
+        Column(modifier = Modifier.fillMaxSize()) {
+            Box(modifier = Modifier.weight(1f)) {
+                when (current) {
             Screen.Home -> Surface(
                 modifier = Modifier.fillMaxSize(),
                 color = MaterialTheme.colorScheme.surface,
             ) {
                 HomeScreen(
                     recent = remember { emptyList<RecentItem>() },
-                    snackbarHostState = snackbarHostState,
                     onOpenLogs = {
                         push(Screen.Logs)
                         AppLog.i("UI", "log viewer opened (long-press on title)")
@@ -157,7 +156,6 @@ private fun IdeasmoApp() {
             }
 
             Screen.Project -> ProjectScreen(
-                snackbarHostState = snackbarHostState,
                 onBack = { pop() },
                 onEntry = { entry ->
                     AppLog.i("UI", "project entry tapped: " + entry.name)
@@ -170,7 +168,6 @@ private fun IdeasmoApp() {
 
             Screen.Board -> BoardScreen(
                 kind = NodeStore.KIND_IDEA,
-                snackbarHostState = snackbarHostState,
                 isDark = isDark,
                 onToggleTheme = toggleTheme,
                 onBack = { pop() },
@@ -192,6 +189,11 @@ private fun IdeasmoApp() {
                     AppLog.i("UI", "log viewer closed")
                 },
             )
+                }
+            }
+            notice?.let { text ->
+                NoticeBar(text = text, onDismiss = { notice = null })
+            }
         }
     }
 }

@@ -19,8 +19,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -30,7 +28,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -38,6 +35,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import com.saeed.ideasmo.R
+import com.saeed.ideasmo.ui.components.NoticeBar
 import com.saeed.ideasmo.ui.theme.Spacing
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -51,8 +49,8 @@ import java.io.File
 @Composable
 fun LogViewerScreen(onClose: () -> Unit) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val snackbarHostState = remember { SnackbarHostState() }
+
+    var notice by remember { mutableStateOf<String?>(null) }
 
     var sessions by remember { mutableStateOf(AppLog.sessions(context)) }
     var selected by remember { mutableStateOf(sessions.firstOrNull()) }
@@ -94,7 +92,6 @@ fun LogViewerScreen(onClose: () -> Unit) {
                 },
             )
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { inner ->
         Column(
             modifier = Modifier
@@ -105,7 +102,7 @@ fun LogViewerScreen(onClose: () -> Unit) {
             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                 TextButton(onClick = {
                     copyLog(context, lines)
-                    scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.logs_copied)) }
+                    notice = context.getString(R.string.logs_copied)
                 }) { Text(stringResource(R.string.logs_copy)) }
 
                 TextButton(onClick = { shareLog(context, lines) }) {
@@ -186,6 +183,9 @@ fun LogViewerScreen(onClose: () -> Unit) {
                         )
                     }
                 }
+            }
+            notice?.let { text ->
+                NoticeBar(text = text, onDismiss = { notice = null })
             }
         }
     }

@@ -42,20 +42,28 @@ object NodeStyle {
         Option(COLOR_OUTLINE, "Outline", "Plain and neutral, with a visible edge."),
     )
 
-    /** Size multipliers. 1.0 is the card the board shipped with. */
-    data class SizeOption(val value: Float, val label: String, val detail: String)
+    /**
+     * Size presets, now in real board units rather than a multiplier, because a card can be resized
+     * freely: a preset is just a convenient pair of numbers, and a free-form size matches none.
+     */
+    data class SizeOption(val w: Float, val h: Float, val label: String, val detail: String)
 
     val SIZES: List<SizeOption> = listOf(
-        SizeOption(0.8f, "Small", "Compact card, for detail nodes."),
-        SizeOption(1f, "Normal", "The default card."),
-        SizeOption(1.25f, "Large", "Roomier card, for important nodes."),
-        SizeOption(1.5f, "Extra large", "The biggest card, for a headline node."),
+        SizeOption(160f, 78f, "Small", "A compact card, for detail nodes."),
+        SizeOption(StructureLayout.NODE_W, StructureLayout.NODE_H, "Normal", "The default card."),
+        SizeOption(250f, 120f, "Large", "A roomier card, for important nodes."),
+        SizeOption(300f, 144f, "Extra large", "The biggest card, for a headline node."),
     )
 
-    /** Clamps any stored or typed size onto the supported set, so bad data cannot break the board. */
+    /** The preset a card matches, or null when the card has been resized by hand. */
+    fun presetFor(w: Float, h: Float): SizeOption? = SIZES.firstOrNull {
+        kotlin.math.abs(it.w - w) < 4f && kotlin.math.abs(it.h - h) < 4f
+    }
+
+    /** The legacy multiplier used by files written before v0.9.0 — read once, on migration. */
     fun sizeOf(value: Float): Float = SIZES
-        .minByOrNull { kotlin.math.abs(it.value - value) }
-        ?.value
+        .minByOrNull { kotlin.math.abs(it.w / StructureLayout.NODE_W - value) }
+        ?.let { it.w / StructureLayout.NODE_W }
         ?: 1f
 
     fun shapeLabel(key: String): String =
