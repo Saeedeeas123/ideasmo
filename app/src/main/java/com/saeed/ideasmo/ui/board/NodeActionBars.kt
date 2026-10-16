@@ -37,15 +37,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -112,11 +112,15 @@ internal fun NodeActionBars(
     val square = zoom.coerceIn(SQUARE_MIN_SCALE, 1f)
     val labels = square >= LABEL_MIN_SCALE
     val naturalH = if (labels) ITEM_H else ITEM_H_ICON
-    val itemW = with(density) { ITEM_W.toPx() } * square
-    val itemH = with(density) { naturalH.toPx() } * square
-    val smallW = with(density) { SMALL_W.toPx() } * square
-    val barPad = with(density) { BAR_PAD.toPx() } * square
-    val gap = with(density) { BAR_GAP.toPx() } * square
+    // The bars are composed inside a density that is scaled by [square], so their dp sizes, their
+    // icons and their labels all shrink together AND their layout boxes (what the finger actually
+    // hits) are exactly the pixels on screen. Nothing here relies on a draw-time transform.
+    val scaled = Density(density.density * square, density.fontScale)
+    val itemW = with(scaled) { ITEM_W.toPx() }
+    val itemH = with(scaled) { naturalH.toPx() }
+    val smallW = with(scaled) { SMALL_W.toPx() }
+    val barPad = with(scaled) { BAR_PAD.toPx() }
+    val gap = with(scaled) { BAR_GAP.toPx() }
     val margin = with(density) { SCREEN_MARGIN.toPx() }
 
     val top = NodeActionCatalog.byGroup(NodeActionGroup.Content)
@@ -168,63 +172,16 @@ internal fun NodeActionBars(
     val rightAt = IntOffset((rightX + dx).roundToInt(), (rightY + dy).roundToInt())
     val bottomAt = IntOffset((bottomX + dx).roundToInt(), (bottomY + dy).roundToInt())
 
-    Box(
-        modifier = Modifier.size(
-            width = with(density) { viewportWidth.toDp() },
-            height = with(density) { viewportHeight.toDp() },
-        ),
-    ) {
-        NodeBar(modifier = Modifier.offset { topAt }.squareScale(square)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                top.forEach { action ->
-                    BarButton(
-                        action = action,
-                        enabled = true,
-                        selected = false,
-                        labels = labels,
-                        naturalH = naturalH,
-                        onClick = { onAction(action.key) },
-                    )
-                }
-            }
-        }
-
-        NodeBar(modifier = Modifier.offset { leftAt }.squareScale(square)) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                left.forEach { action ->
-                    BarButton(
-                        action = action,
-                        // Paste is honest about the empty clipboard instead of failing silently.
-                        enabled = action.key != NodeActionCatalog.PASTE || clipboardHasContent,
-                        selected = false,
-                        labels = labels,
-                        naturalH = naturalH,
-                        onClick = { onAction(action.key) },
-                    )
-                }
-            }
-        }
-
-        NodeBar(modifier = Modifier.offset { rightAt }.squareScale(square)) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                right.forEach { action ->
-                    BarButton(
-                        action = action,
-                        enabled = true,
-                        selected = false,
-                        labels = labels,
-                        naturalH = naturalH,
-                        onClick = { onAction(action.key) },
-                    )
-                }
-            }
-        }
-
-        // The bottom bar: either the three style actions, or the tool they opened.
-        NodeBar(modifier = Modifier.offset { bottomAt }.squareScale(square)) {
-            when (tool) {
-                NodeTool.None -> Row(verticalAlignment = Alignment.CenterVertically) {
-                    bottom.forEach { action ->
+        CompositionLocalProvider(LocalDensity provides scaled) {
+        Box(
+            modifier = Modifier.size(
+                width = with(density) { viewportWidth.toDp() },
+                height = with(density) { viewportHeight.toDp() },
+            ),
+        ) {
+            NodeBar(modifier = Modifier.offset { topAt }) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    top.forEach { action ->
                         BarButton(
                             action = action,
                             enabled = true,
@@ -235,90 +192,120 @@ internal fun NodeActionBars(
                         )
                     }
                 }
-
-                NodeTool.Colour -> Row(verticalAlignment = Alignment.CenterVertically) {
-                    SwatchButton(
-                        colour = MaterialTheme.colorScheme.surfaceVariant,
-                        selected = node.color == null,
-                        naturalH = naturalH,
-                        onClick = { onColor(null) },
-                    )
-                    NodeStyle.COLORS.forEach { option ->
-                        val role = LinkColor.values().firstOrNull { it.name.equals(option.key, true) }
-                        SwatchButton(
-                            colour = if (role != null) {
-                                themeRoleColor(MaterialTheme.colorScheme, role)
-                            } else {
-                                MaterialTheme.colorScheme.outline
-                            },
-                            selected = node.color == option.key,
-                            naturalH = naturalH,
-                            onClick = { onColor(option.key) },
-                        )
-                    }
-                    ToolClose(naturalH = naturalH, onClick = { onTool(NodeTool.None) })
-                }
-
-                NodeTool.Shape -> Row(verticalAlignment = Alignment.CenterVertically) {
-                    NodeStyle.SHAPES.forEach { option ->
-                        ShapeButton(
-                            shapeKey = option.key,
-                            label = option.label,
-                            selected = node.shape == option.key,
+            }
+    
+            NodeBar(modifier = Modifier.offset { leftAt }) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    left.forEach { action ->
+                        BarButton(
+                            action = action,
+                            // Paste is honest about the empty clipboard instead of failing silently.
+                            enabled = action.key != NodeActionCatalog.PASTE || clipboardHasContent,
+                            selected = false,
                             labels = labels,
                             naturalH = naturalH,
-                            onClick = { onShape(option.key) },
+                            onClick = { onAction(action.key) },
                         )
                     }
-                    ToolClose(naturalH = naturalH, onClick = { onTool(NodeTool.None) })
                 }
-
-                NodeTool.Resize -> Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.s),
-                ) {
-                    Text(
-                        text = stringResource(
-                            R.string.resize_readout,
-                            StructureLayout.widthOf(node).roundToInt(),
-                            StructureLayout.heightOf(node).roundToInt(),
-                        ),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(
-                        text = stringResource(R.string.resize_done),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(Radius.small))
-                            .clickable(onClick = onResizeDone)
-                            .padding(horizontal = Spacing.m, vertical = Spacing.s),
-                    )
+            }
+    
+            NodeBar(modifier = Modifier.offset { rightAt }) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    right.forEach { action ->
+                        BarButton(
+                            action = action,
+                            enabled = true,
+                            selected = false,
+                            labels = labels,
+                            naturalH = naturalH,
+                            onClick = { onAction(action.key) },
+                        )
+                    }
+                }
+            }
+    
+            // The bottom bar: either the three style actions, or the tool they opened.
+            NodeBar(modifier = Modifier.offset { bottomAt }) {
+                when (tool) {
+                    NodeTool.None -> Row(verticalAlignment = Alignment.CenterVertically) {
+                        bottom.forEach { action ->
+                            BarButton(
+                                action = action,
+                                enabled = true,
+                                selected = false,
+                                labels = labels,
+                                naturalH = naturalH,
+                                onClick = { onAction(action.key) },
+                            )
+                        }
+                    }
+    
+                    NodeTool.Colour -> Row(verticalAlignment = Alignment.CenterVertically) {
+                        SwatchButton(
+                            colour = MaterialTheme.colorScheme.surfaceVariant,
+                            selected = node.color == null,
+                            naturalH = naturalH,
+                            onClick = { onColor(null) },
+                        )
+                        NodeStyle.COLORS.forEach { option ->
+                            val role = LinkColor.values().firstOrNull { it.name.equals(option.key, true) }
+                            SwatchButton(
+                                colour = if (role != null) {
+                                    themeRoleColor(MaterialTheme.colorScheme, role)
+                                } else {
+                                    MaterialTheme.colorScheme.outline
+                                },
+                                selected = node.color == option.key,
+                                naturalH = naturalH,
+                                onClick = { onColor(option.key) },
+                            )
+                        }
+                        ToolClose(naturalH = naturalH, onClick = { onTool(NodeTool.None) })
+                    }
+    
+                    NodeTool.Shape -> Row(verticalAlignment = Alignment.CenterVertically) {
+                        NodeStyle.SHAPES.forEach { option ->
+                            ShapeButton(
+                                shapeKey = option.key,
+                                label = option.label,
+                                selected = node.shape == option.key,
+                                labels = labels,
+                                naturalH = naturalH,
+                                onClick = { onShape(option.key) },
+                            )
+                        }
+                        ToolClose(naturalH = naturalH, onClick = { onTool(NodeTool.None) })
+                    }
+    
+                    NodeTool.Resize -> Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.s),
+                    ) {
+                        Text(
+                            text = stringResource(
+                                R.string.resize_readout,
+                                StructureLayout.widthOf(node).roundToInt(),
+                                StructureLayout.heightOf(node).roundToInt(),
+                            ),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = stringResource(R.string.resize_done),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(Radius.small))
+                                .clickable(onClick = onResizeDone)
+                                .padding(horizontal = Spacing.m, vertical = Spacing.s),
+                        )
+                    }
                 }
             }
         }
-    }
-}
-
-/**
- * Shrinks a whole bar with the board so the square stays in proportion to its node.
- *
- * The bar keeps its natural layout size and is scaled around its own top-left corner, which is the
- * corner the geometry above reserved for it — so the rendered bar lands exactly in its slot and the
- * touch area follows the pixels (Compose maps pointer input through the layer, the same way the node
- * cards stay tappable inside the board's own scaled layer).
- */
-private fun Modifier.squareScale(scale: Float): Modifier =
-    if (scale >= 1f) {
-        this
-    } else {
-        graphicsLayer {
-            scaleX = scale
-            scaleY = scale
-            transformOrigin = TransformOrigin(0f, 0f)
         }
-    }
+}
 
 /** One bar of the square: a rounded tonal surface, no shadow, a 1 dp outline. */
 @Composable

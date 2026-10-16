@@ -509,7 +509,11 @@ no dependency where a Compose `Canvas` would do.
      exactly how the left bar disappeared at 25 % zoom, where the old square was ~478 dp wide on a
      412 dp screen. If the square still cannot fit, it is centred on the viewport so it keeps its shape.
      Below `LABEL_MIN_SCALE` (0.7) the bars drop their labels and become icon-only (44 dp natural
-     height instead of 60), which keeps them legible instead of turning into grey mush.
+     height instead of 60), which keeps them legible instead of turning into grey mush. The scaling is
+     done by composing the square inside a **scaled `Density`** (`LocalDensity`), not by a draw-time
+     `graphicsLayer`: the bars' own layout boxes are then exactly the pixels on screen, so every
+     button keeps an exact touch target at every zoom and nothing depends on hit-testing through a
+     layer transform.
   2. **Resize handles**: 22 dp at 100 % zoom instead of 30 dp, they shrink with the card
      (`HANDLE_MIN` = 12 dp floor), they are capped at a third of the card so the eight of them cannot
      collapse into one blob, their touch box is capped at half the card so they cannot steal each
