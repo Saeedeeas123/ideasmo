@@ -32,6 +32,18 @@ data class IdeaNode(
      * is hidden until it is expanded again. Nothing is deleted — the data stays intact.
      */
     val collapsed: Boolean = false,
+    /**
+     * Optional colour override, as a Material role name (see [NodeStyle]).
+     * Null = the default card surface. Kept as a role, never a raw hex, so day/night and dynamic
+     * colour keep working.
+     */
+    val color: String? = null,
+    /** Card shape key from [NodeStyle]. */
+    val shape: String = NodeStyle.SHAPE_ROUNDED,
+    /** Card size multiplier from [NodeStyle.SIZES]; 1.0 is the original card. */
+    val size: Float = 1f,
+    /** Last time anything about the node changed — useful for sync and for the model layer. */
+    val updatedAt: Long = 0L,
 )
 
 /**
@@ -55,6 +67,13 @@ data class NodeLink(
      * sibling order is stored on the link, so it survives restarts and drives the auto-layout.
      */
     val order: Int = 0,
+    /**
+     * A free description of THIS relation ("agreed in the 2026-10 review"). Separate from [label],
+     * which is the phrase the link reads as. Machine-readable on purpose: the model layer gets both.
+     */
+    val note: String? = null,
+    /** When the link was created. */
+    val createdAt: Long = 0L,
 ) {
     fun otherEnd(nodeId: String): String = if (fromId == nodeId) toId else fromId
 
@@ -153,6 +172,82 @@ object NodeStore {
 
     fun isLinked(a: String, b: String, type: String? = null): Boolean =
         linkItems.any { it.connects(a, b) && (type == null || it.type == type) }
+
+    // ---- editing one node ---------------------------------------------------
+
+    /** Replaces a node with an edited copy, stamps `updatedAt` and persists. */
+    fun updateNode(context: Context, updated: IdeaNode): Boolean {
+        val index = items.indexOfFirst { it.id == updated.id }
+        if (index < 0) {
+            AppLog.w("Node", "update refused: no node " + updated.id)
+            return false
+        }
+        val stamped = updated.copy(updatedAt = System.currentTimeMillis())
+        items[index] = stamped
+        persist(context)
+        AppLog.i(
+            "Node",
+            "node updated: '" + stamped.name + "' (" + stamped.id + ") color=" + (stamped.color ?: "default") +
+                " shape=" + stamped.shape + " size=" + stamped.size +
+                " notes=" + stamped.description.length + "ch hasPic=" + (stamped.picUri != null),
+        )
+        return true
+    }
+
+    /**
+     * The parent of a node: the source of the first incoming link.
+     * Used by Sibling and by Reattach. A node nothing points at has no parent — it is a root.
+     */
+    fun parentOf(nodeId: String): IdeaNode? = linksIn(nodeId).firstOrNull()?.let { byId(it.fromId) }
+
+    /**
+     * A node written as data: every field, every link, each with its id.
+     *
+     * This is the shape the language-model layer will read (and the user can copy it out of the
+     * details dialog). It is deliberately plain text with stable field names, not prose.
+     */
+    fun describe(nodeId: String): String {
+        val node = byId(nodeId) ?: return "node " + nodeId + ": not found"
+        val out = StringBuilder()
+        out.appendLine("node: " + node.id)
+        out.appendLine("name: " + node.name)
+        out.appendLine("kind: " + node.kind)
+        out.appendLine("priority: " + node.priority)
+        out.appendLine("color: " + (node.color ?: "default"))
+        out.appendLine("shape: " + node.shape)
+        out.appendLine("size: " + node.size)
+        out.appendLine("central: " + node.isRoot)
+        out.appendLine("collapsed: " + node.collapsed)
+        out.appendLine("hasPicture: " + (node.picUri != null))
+        out.appendLine("position: (" + node.x.toInt() + ", " + node.y.toInt() + ") board units, origin = (0, 0)")
+        out.appendLine("created: " + node.createdAt)
+        out.appendLine("updated: " + node.updatedAt)
+        out.appendLine("notes: " + node.description)
+
+        val outs = linksOut(nodeId)
+        out.appendLine("links out (" + outs.size + "):")
+        if (outs.isEmpty()) out.appendLine("  - none")
+        outs.forEachIndexed { i, l ->
+            val t = LinkCatalog.byKey(l.type)
+            out.appendLine(
+                "  " + (i + 1) + ". " + LinkCatalog.sentence(t, node.name, nameOf(l.toId), l.label) +
+                    " [id=" + l.id + ", type=" + l.type + ", order=" + l.order +
+                    ", color=" + (l.color ?: "type") + ", note=" + (l.note ?: "-") + "]",
+            )
+        }
+
+        val ins = linksIn(nodeId)
+        out.appendLine("links in (" + ins.size + "):")
+        if (ins.isEmpty()) out.appendLine("  - none")
+        ins.forEach { l ->
+            val t = LinkCatalog.byKey(l.type)
+            out.appendLine(
+                "  - " + LinkCatalog.sentence(t, nameOf(l.fromId), node.name, l.label) +
+                    " [id=" + l.id + ", type=" + l.type + ", note=" + (l.note ?: "-") + "]",
+            )
+        }
+        return out.toString()
+    }
 
     // ---- structure ----------------------------------------------------------
 
@@ -330,6 +425,10 @@ object NodeStore {
                         y = if (hasPosition) o.optDouble("y", 0.0).toFloat() else (i / 2) * MIGRATION_ROW_H,
                         isRoot = o.optBoolean("isRoot", false),
                         collapsed = o.optBoolean("collapsed", false),
+                        color = if (o.has("color") && !o.isNull("color")) o.optString("color") else null,
+                        shape = if (o.has("shape")) o.optString("shape") else NodeStyle.SHAPE_ROUNDED,
+                        size = NodeStyle.sizeOf(o.optDouble("size", 1.0).toFloat()),
+                        updatedAt = o.optLong("updatedAt", 0L),
                     ),
                 )
             }
@@ -351,6 +450,8 @@ object NodeStore {
                             label = if (o.isNull("label")) null else o.optString("label"),
                             color = if (o.has("color") && !o.isNull("color")) o.optString("color") else null,
                             order = o.optInt("order", 0),
+                            note = if (o.has("note") && !o.isNull("note")) o.optString("note") else null,
+                            createdAt = o.optLong("createdAt", 0L),
                         ),
                     )
                 }
@@ -427,6 +528,8 @@ object NodeStore {
             label = label,
             color = null,
             order = linksOut(fromId).size,
+            note = null,
+            createdAt = System.currentTimeMillis(),
         )
         if (linkItems.any { it.sameAs(candidate) }) return "exists"
         linkItems.add(candidate)
@@ -527,6 +630,10 @@ object NodeStore {
                 o.put("y", n.y.toDouble())
                 o.put("isRoot", n.isRoot)
                 o.put("collapsed", n.collapsed)
+                o.put("color", n.color ?: JSONObject.NULL)
+                o.put("shape", n.shape)
+                o.put("size", n.size.toDouble())
+                o.put("updatedAt", n.updatedAt)
                 nodesArray.put(o)
             }
             val linksArray = JSONArray()
@@ -539,6 +646,8 @@ object NodeStore {
                 o.put("label", l.label ?: JSONObject.NULL)
                 o.put("color", l.color ?: JSONObject.NULL)
                 o.put("order", l.order)
+                o.put("note", l.note ?: JSONObject.NULL)
+                o.put("createdAt", l.createdAt)
                 linksArray.put(o)
             }
             val root = JSONObject()

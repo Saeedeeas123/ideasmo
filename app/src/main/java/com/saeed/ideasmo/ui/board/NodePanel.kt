@@ -78,6 +78,7 @@ internal fun NodePanel(
     onToggleCollapse: () -> Unit,
     onNudge: (Float, Float) -> Unit,
     onArrange: () -> Unit,
+    onDetails: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -317,7 +318,9 @@ internal fun NodePanel(
                     Column(modifier = Modifier.fillMaxWidth()) {
                         Spacer(Modifier.height(Spacing.l))
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(Spacing.s),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -326,6 +329,12 @@ internal fun NodePanel(
                                 modifier = Modifier.heightIn(min = Sizes.touchMin),
                             ) {
                                 Text(stringResource(R.string.node_add_link))
+                            }
+                            OutlinedButton(
+                                onClick = onDetails,
+                                modifier = Modifier.heightIn(min = Sizes.touchMin),
+                            ) {
+                                Text(stringResource(R.string.node_details))
                             }
                             TextButton(
                                 onClick = onDelete,

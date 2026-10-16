@@ -278,6 +278,72 @@ from zero and adding the origin once, in one place.
 order (older nodes are drawn first, so newer ones overlap them). A real Z control — raise or lower a
 node, layer separation, per-layer dimming — lands on this axis without a rewrite.
 
+### 6.8 The node action square — every node feature in one place (v0.8.0)
+
+Saeed sent a screenshot of a node menu from another mind-mapping app: **four bars forming a square
+around the selected node** (top: Text · Image · Connect · Notes · More — left: Copy · Cut · Paste ·
+Delete — right: Child · Sibling · Duplicate · Reattach — bottom: Resize · Color · Shape · Schema ·
+Group) and asked for those node features in Ideasmo, with that square graphic. He also set a standing
+rule for the whole project: **give everything an id and a description from now on**, because the
+language-model layer that comes later needs a machine-readable surface.
+
+**The catalogue comes first.** `core/model/NodeActionCatalog.kt` is the single source of truth: every
+node operation has a stable **key** (`node.text`, `node.child`, …), a label, the **group** that is the
+bar it belongs to, and a **description that states what it does and which parameters it takes**. The
+four bars are generated from it, so a button can never exist without a description — and the model
+layer gets the app's whole node vocabulary for free. `NodeStyle.kt` does the same for the look
+(shape keys, colour roles, size steps), and a JVM test fails the build if an id, label or description
+goes missing or a key is duplicated.
+
+**The square.** `ui/board/NodeActionBars.kt` draws the four bars around the selected node. It lives in
+**screen space**, not in the board's transformed layer, so the buttons keep a real 48 dp touch target
+at every zoom; it is centred on the node with a minimum square size, and clamped to the viewport so a
+bar can never be pushed off screen. It steps aside whenever a panel, a dialog or a pending
+"tap a target" mode owns the screen, and Paste is shown as unavailable while the clipboard is empty
+instead of failing silently. The single-row action bar of v0.6.0/v0.7.0 is gone.
+
+**What each action does**
+
+| Bar | Action | Behaviour |
+|---|---|---|
+| Top | **Text** | Rename, in a dialog, focused on open; an empty name is refused. |
+| Top | **Image** | Pick a picture (copied into the app); if one exists, a dialog offers replace or remove. |
+| Top | **Connect** | Pick a link type, then tap the target — the existing typed-relation flow. |
+| Top | **Notes** | Edit the node's notes (the free text behind the card preview). |
+| Top | **More** | The deep panel: links out and in, branch order, structure controls — and **Details**. |
+| Left | **Copy / Cut / Paste** | The app's own node clipboard (`NodeClipboard`): Copy holds the node, Cut also removes it with Undo, Paste creates it at the centre of the view with a new id. Memory-only on purpose. |
+| Left | **Delete** | Removes the node and every link that touches it, with Undo. |
+| Right | **Child** | Creates a node **and** links it as a child, then names it straight away. |
+| Right | **Sibling** | Same, but under this node's parent; refused with an explanation when the node has no parent. |
+| Right | **Duplicate** | An unlinked copy, offset slightly, keeping name, notes, priority and style. |
+| Right | **Reattach** | Re-parent: tap the new parent; the node's incoming links are replaced and Undo restores them. **Refuses a parent inside the node's own subtree**, so a branch can never be folded into itself. |
+| Bottom | **Resize / Colour / Shape** | One style sheet, three sections. Size (small/normal/large/extra large), colour (a Material role blended into the card tone, or default), shape (rounded, square, pill, cut corner). |
+
+**Per-node style, and the layout follows it.** `IdeaNode` gained `color`, `shape`, `size` and
+`updatedAt`; `NodeLink` gained `note` and `createdAt` — every new field is optional and old files load
+unchanged. The structure engine now measures **each node's own card** (`widthOf`/`heightOf`) instead of
+one global constant: siblings are separated by their own height, the step between levels clears the
+largest card on the board, and the origin anchor uses the central node's real half-size. Link trimming
+is done per end, so a resized card still gets its lines stopped at its own edge.
+
+**Everything has an id, and a node can be read as data.** `NodeStore.describe(nodeId)` writes the node
+as plain text with stable field names — id, kind, priority, style, central/collapsed flags, position in
+board units with the origin at (0, 0), timestamps, notes, and every link with its id, type, order,
+colour and note. **More → Details** shows it and copies it to the clipboard in one tap: this is the
+shape the language-model layer will read.
+
+**Deliberately NOT built, and why** (the rule Saeed set: implement what is clear, ask about the rest):
+
+- **Group** — needs multi-select, which the board does not have yet. Grouping one node is meaningless,
+  so this waits for selection (rubber-band or long-press multi-select) rather than being guessed at.
+- **Schema** — ambiguous in the reference app. Two readings: (a) the structure type of a branch (mind
+  map / org chart / timeline), which in Ideasmo is already the global direction + spacing; or (b) a
+  per-branch override of that. Both are useful and both are guesses, so neither was built.
+- **The ⊖ button in the middle of the card** in the screenshot (next to the edit pencil) — ambiguous
+  between "collapse the branch" and "remove the node". Collapse already exists in the node panel;
+  guessing wrong would put a destructive button under the user's thumb.
+- The **pencil** shortcut was left out because it only duplicates the top bar's Text.
+
 ## 7. Assets
 
 - **Icons:** `material-icons-extended` 1.7.2 (local, no download). Outlined for chrome.
@@ -357,3 +423,23 @@ no dependency where a Compose `Canvas` would do.
   APK dex.
 - Not verified: the same gap as v0.6.0 — the look and the touch feel on the device. The first real
   check is Saeed installing the APK.
+
+### v0.8.0 sign-off (2026-10-15)
+
+- Implemented: the node action square (four bars around the selected node, generated from
+  `NodeActionCatalog`) with 16 node actions — Text, Image, Connect, Notes, More, Copy, Cut, Paste,
+  Delete, Child, Sibling, Duplicate, Reattach, Resize, Colour, Shape — plus per-node style
+  (colour/shape/size) that the layout engine now respects, an app node clipboard, a Details view that
+  copies a node as machine-readable data, and ids + descriptions on every action and every style
+  option.
+- Not implemented on purpose (and why, in section 6.8): **Group** (needs multi-select, which does not
+  exist yet), **Schema** (ambiguous — two plausible readings), the **⊖** button (ambiguous between
+  collapse and delete), and the pencil shortcut (duplicates Text).
+- Verified how: `:app:testDebugUnitTest` **24/24 green** (16 structure-engine tests including per-node
+  sizes and origin anchoring with a resized central node, plus 8 catalogue/style tests) and
+  `:app:assembleDebug` **BUILD SUCCESSFUL in 2m 48s with 0 warnings**; APK badging v0.8.0
+  (versionCode 8); every new class confirmed in the APK dex.
+- Not verified: the same standing gap — the look and the touch feel on the device. The square is the
+  biggest new visual surface in the app, so the device check matters more than usual here: does the
+  square fit at 100 % zoom, does it stay reachable at the edges of a node near the screen border, and
+  does it get in the way while dragging.

@@ -253,4 +253,62 @@
     <string name="help_origin_1">The board has one fixed point, its origin (0, 0) — the dot in a ring.</string>
     <string name="help_origin_2">Arrange moves the central node onto the origin and builds the map from there, so arranging twice always gives the same result.</string>
     <string name="help_origin_3">The Origin button brings the view back to it, wherever you have travelled.</string>
+
+    <!-- v0.8.0 · the node action square (labels for the ids in NodeActionCatalog) -->
+    <string name="act_text">Text</string>
+    <string name="act_image">Image</string>
+    <string name="act_connect">Connect</string>
+    <string name="act_notes">Notes</string>
+    <string name="act_more">More</string>
+    <string name="act_copy">Copy</string>
+    <string name="act_cut">Cut</string>
+    <string name="act_paste">Paste</string>
+    <string name="act_delete">Delete</string>
+    <string name="act_child">Child</string>
+    <string name="act_sibling">Sibling</string>
+    <string name="act_duplicate">Duplicate</string>
+    <string name="act_reattach">Reattach</string>
+    <string name="act_resize">Resize</string>
+    <string name="act_color">Colour</string>
+    <string name="act_shape">Shape</string>
+
+    <!-- v0.8.0 · node editing -->
+    <string name="save">Save</string>
+    <string name="node_text_title">Node text</string>
+    <string name="node_notes_title">Node notes</string>
+    <string name="node_style_title">Node style</string>
+    <string name="node_details">Details</string>
+    <string name="node_new_default">New node</string>
+    <string name="node_renamed">Renamed to %1$s</string>
+    <string name="notes_saved">Notes saved</string>
+    <string name="copied_node">Copied %1$s</string>
+    <string name="cut_node">Cut %1$s</string>
+    <string name="pasted_node">Pasted %1$s</string>
+    <string name="duplicated_node">Duplicated %1$s</string>
+    <string name="clipboard_empty">The clipboard is empty — copy or cut a node first</string>
+    <string name="details_copy">Copy as data</string>
+    <string name="details_copied">Node data copied to the clipboard</string>
+
+    <!-- v0.8.0 · pictures -->
+    <string name="picture_title">Picture</string>
+    <string name="picture_question">This node already has a picture.</string>
+    <string name="picture_replace">Choose a new one</string>
+    <string name="picture_remove">Remove it</string>
+    <string name="picture_updated">Picture updated</string>
+    <string name="picture_removed">Picture removed</string>
+
+    <!-- v0.8.0 · branch actions -->
+    <string name="no_parent_for_sibling">Nothing points at this node, so it has no parent — use Child instead</string>
+    <string name="reattach_hint">Now tap the new parent for this branch</string>
+    <string name="reattach_cancelled">Reattach cancelled</string>
+    <string name="reattached">%1$s is now under %2$s</string>
+    <string name="reattach_cycle">That node sits inside this branch — a branch cannot be folded into itself</string>
+
+    <!-- v0.8.0 · style -->
+    <string name="style_size">Size</string>
+    <string name="style_colour">Colour</string>
+    <string name="style_shape">Shape</string>
+    <string name="style_default">Default</string>
+    <string name="style_colour_default_detail">The plain card tone — it follows day / night and your wallpaper colour.</string>
+    <string name="style_note">Resize, Colour and Shape all live here: they are three views of the same card.</string>
 </resources>

@@ -72,11 +72,14 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -91,8 +94,11 @@ import com.saeed.ideasmo.core.model.LayoutSpacing
 import com.saeed.ideasmo.core.model.LinkCatalog
 import com.saeed.ideasmo.core.model.LinkColor
 import com.saeed.ideasmo.core.model.LinkType
+import com.saeed.ideasmo.core.model.NodeActionCatalog
+import com.saeed.ideasmo.core.model.NodeClipboard
 import com.saeed.ideasmo.core.model.NodeLink
 import com.saeed.ideasmo.core.model.NodeStore
+import com.saeed.ideasmo.core.model.NodeStyle
 import com.saeed.ideasmo.core.model.StructureLayout
 import com.saeed.ideasmo.core.prefs.BoardPrefs
 import com.saeed.ideasmo.core.util.copyPictureIntoAppStorage
@@ -123,6 +129,7 @@ private sealed interface Panel {
     data class NodeInfo(val id: String) : Panel
     data class Picker(val id: String) : Panel
     data class LinkInfo(val id: String) : Panel
+    data class Style(val id: String) : Panel
     data object Settings : Panel
 }
 
@@ -196,9 +203,9 @@ private class BoardState {
             offsetY = cy
         } else {
             val minX = nodes.minOf { it.x }
-            val maxX = nodes.maxOf { it.x + NODE_W }
+            val maxX = nodes.maxOf { it.x + StructureLayout.widthOf(it) }
             val minY = nodes.minOf { it.y }
-            val maxY = nodes.maxOf { it.y + NODE_H_EST }
+            val maxY = nodes.maxOf { it.y + StructureLayout.heightOf(it) }
             offsetX = cx - (minX + maxX) / 2f
             offsetY = cy - (minY + maxY) / 2f
         }
@@ -254,6 +261,16 @@ fun BoardScreen(
     var minimapVisible by remember { mutableStateOf(false) }
     var centeredOnce by remember { mutableStateOf(false) }
 
+    // The node action square drives these: one dialog at a time, and the two tap-a-target modes.
+    var textDialogFor by remember { mutableStateOf<String?>(null) }
+    var notesDialogFor by remember { mutableStateOf<String?>(null) }
+    var detailsFor by remember { mutableStateOf<String?>(null) }
+    var pictureDialogFor by remember { mutableStateOf<String?>(null) }
+    var imageTarget by remember { mutableStateOf<String?>(null) }
+    var reattachFrom by remember { mutableStateOf<String?>(null) }
+
+    val clipboard = LocalClipboardManager.current
+
     // The minimap is summoned by touching the board and lingers briefly after release.
     LaunchedEffect(board.gestureActive, board.gestureEndedAt) {
         if (board.gestureActive) {
@@ -276,12 +293,23 @@ fun BoardScreen(
     val pickImage = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
     ) { uri ->
+        val target = imageTarget
         if (uri == null) {
             AppLog.i("Board", "picture pick cancelled")
+            imageTarget = null
         } else {
-            picPath = copyPictureIntoAppStorage(context, uri)
-            if (picPath == null) {
+            val path = copyPictureIntoAppStorage(context, uri)
+            if (path == null) {
                 scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.pic_pick_failed)) }
+            } else if (target != null) {
+                // Image action on an existing node: replace its picture in place.
+                NodeStore.byId(target)?.let { node ->
+                    NodeStore.updateNode(context, node.copy(picUri = path))
+                }
+                imageTarget = null
+                scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.picture_updated)) }
+            } else {
+                picPath = path
             }
         }
     }
@@ -317,10 +345,60 @@ fun BoardScreen(
         }
     }
 
-    // Tap on a node: complete a pending link, otherwise select it.
+    // Tap on a node: complete a pending reattach or link, otherwise select it.
     val onNodeTap: (IdeaNode) -> Unit = { node ->
+        val reattach = reattachFrom
         val from = connectFrom
-        if (from != null) {
+        if (reattach != null) {
+            reattachFrom = null
+            val moving = NodeStore.byId(reattach)
+            when {
+                reattach == node.id -> {
+                    AppLog.w("Node", "reattach refused: same node")
+                    scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.link_self)) }
+                }
+
+                // A branch may never be folded into itself.
+                NodeStore.subtreeOf(reattach).contains(node.id) -> {
+                    AppLog.w("Node", "reattach refused: target is inside the moving subtree")
+                    scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.reattach_cycle)) }
+                }
+
+                else -> {
+                    val oldLinks = NodeStore.linksIn(reattach)
+                    val type = oldLinks.firstOrNull()?.type ?: LinkCatalog.DEFAULT_KEY
+                    oldLinks.forEach { NodeStore.removeLink(context, it) }
+                    val outcome = NodeStore.addLink(context, node.id, reattach, type, null)
+                    if (outcome == "ok") {
+                        val added = NodeStore.linksOut(node.id).lastOrNull()
+                        selectedId = reattach
+                        AppLog.i(
+                            "Node",
+                            "reattached '" + (moving?.name ?: reattach) + "' under '" + node.name +
+                                "' (replaced " + oldLinks.size + " incoming link(s))",
+                        )
+                        scope.launch {
+                            val result = snackbarHostState.showSnackbar(
+                                message = context.getString(
+                                    R.string.reattached,
+                                    moving?.name ?: "?",
+                                    node.name,
+                                ),
+                                actionLabel = context.getString(R.string.undo),
+                                withDismissAction = true,
+                            )
+                            if (result == SnackbarResult.ActionPerformed) {
+                                if (added != null) NodeStore.removeLink(context, added)
+                                oldLinks.forEach { NodeStore.restoreLink(context, it) }
+                                AppLog.i("Node", "reattach undone")
+                            }
+                        }
+                    } else {
+                        scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.link_exists)) }
+                    }
+                }
+            }
+        } else if (from != null) {
             connectFrom = null
             val label = pendingLabel
             when (NodeStore.addLink(context, from, node.id, pendingType.key, label)) {
@@ -405,6 +483,158 @@ fun BoardScreen(
         }
     }
 
+    // ---- the node action square ---------------------------------------------
+    //
+    // Every branch below is one entry of NodeActionCatalog, so the square, the Help screen and the
+    // planned model layer all describe the same set of operations, with the same ids.
+
+    fun snack(text: String) {
+        scope.launch { snackbarHostState.showSnackbar(text) }
+    }
+
+    fun removeWithUndo(node: IdeaNode, message: String) {
+        val removed = NodeStore.remove(context, node.id)
+        selectedId = null
+        panel = null
+        if (removed != null) {
+            scope.launch {
+                val result = snackbarHostState.showSnackbar(
+                    message = message,
+                    actionLabel = context.getString(R.string.undo),
+                    withDismissAction = true,
+                )
+                if (result == SnackbarResult.ActionPerformed) {
+                    NodeStore.restore(context, removed.first, removed.second)
+                    AppLog.i("Node", "removal undone: '" + removed.first.name + "'")
+                }
+            }
+        }
+    }
+
+    /** A new node lands just below-right of its reference, so it is visible without an Arrange. */
+    fun createLinkedNode(reference: IdeaNode, asSibling: Boolean) {
+        val parent = if (asSibling) NodeStore.parentOf(reference.id) else reference
+        if (parent == null) {
+            AppLog.w("Node", "sibling refused: '" + reference.name + "' has no parent")
+            snack(context.getString(R.string.no_parent_for_sibling))
+            return
+        }
+        val id = NodeStore.newId()
+        val now = System.currentTimeMillis()
+        NodeStore.add(
+            context,
+            IdeaNode(
+                id = id,
+                kind = kind,
+                name = context.getString(R.string.node_new_default),
+                priority = 3,
+                description = "",
+                picUri = null,
+                createdAt = now,
+                x = reference.x + StructureLayout.widthOf(reference) + 60f,
+                y = reference.y + StructureLayout.heightOf(reference) + 24f,
+                updatedAt = now,
+            ),
+        )
+        NodeStore.addLink(context, parent.id, id, LinkCatalog.DEFAULT_KEY, null)
+        selectedId = id
+        // Name it straight away: a node called "new node" is not a finished thought.
+        textDialogFor = id
+        AppLog.i(
+            "Node",
+            (if (asSibling) "sibling" else "child") + " created: id=" + id + " under '" + parent.name + "'",
+        )
+    }
+
+    val runNodeAction: (String) -> Unit = action@{ key ->
+        val node = selectedId?.let { NodeStore.byId(it) } ?: return@action
+        AppLog.i("Node", "action " + key + " on '" + node.name + "' (" + node.id + ")")
+        when (key) {
+            NodeActionCatalog.TEXT -> textDialogFor = node.id
+            NodeActionCatalog.NOTES -> notesDialogFor = node.id
+            NodeActionCatalog.IMAGE -> {
+                if (node.picUri == null) {
+                    imageTarget = node.id
+                    pickImage.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                    )
+                } else {
+                    pictureDialogFor = node.id
+                }
+            }
+
+            NodeActionCatalog.CONNECT -> panel = Panel.Picker(node.id)
+            NodeActionCatalog.MORE -> panel = Panel.NodeInfo(node.id)
+
+            NodeActionCatalog.COPY -> {
+                NodeClipboard.copy(node)
+                snack(context.getString(R.string.copied_node, node.name))
+            }
+
+            NodeActionCatalog.CUT -> {
+                NodeClipboard.cut(node)
+                removeWithUndo(node, context.getString(R.string.cut_node, node.name))
+            }
+
+            NodeActionCatalog.PASTE -> {
+                val source = NodeClipboard.content
+                if (source == null) {
+                    snack(context.getString(R.string.clipboard_empty))
+                } else {
+                    val now = System.currentTimeMillis()
+                    val copy = source.copy(
+                        id = NodeStore.newId(),
+                        kind = kind,
+                        x = board.screenToWorldX(board.viewportW / 2f) - StructureLayout.widthOf(source) / 2f,
+                        y = board.screenToWorldY(board.viewportH / 2f) - StructureLayout.heightOf(source) / 2f,
+                        isRoot = false,
+                        collapsed = false,
+                        createdAt = now,
+                        updatedAt = now,
+                    )
+                    NodeStore.add(context, copy)
+                    selectedId = copy.id
+                    snack(context.getString(R.string.pasted_node, copy.name))
+                }
+            }
+
+            NodeActionCatalog.DELETE -> removeWithUndo(node, context.getString(R.string.node_deleted))
+
+            NodeActionCatalog.CHILD -> createLinkedNode(node, asSibling = false)
+            NodeActionCatalog.SIBLING -> createLinkedNode(node, asSibling = true)
+
+            NodeActionCatalog.DUPLICATE -> {
+                val now = System.currentTimeMillis()
+                val copy = node.copy(
+                    id = NodeStore.newId(),
+                    x = node.x + 32f,
+                    y = node.y + 32f,
+                    isRoot = false,
+                    collapsed = false,
+                    createdAt = now,
+                    updatedAt = now,
+                )
+                NodeStore.add(context, copy)
+                selectedId = copy.id
+                snack(context.getString(R.string.duplicated_node, copy.name))
+            }
+
+            NodeActionCatalog.REATTACH -> {
+                reattachFrom = node.id
+                selectedId = null
+                AppLog.i("Node", "reattach mode started from '" + node.name + "'")
+                snack(context.getString(R.string.reattach_hint))
+            }
+
+            NodeActionCatalog.RESIZE,
+            NodeActionCatalog.COLOR,
+            NodeActionCatalog.SHAPE,
+            -> panel = Panel.Style(node.id)
+
+            else -> AppLog.w("Node", "no handler for action " + key)
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -480,25 +710,39 @@ fun BoardScreen(
                             null
                         } else {
                             val type = LinkCatalog.byKey(link.type)
+                            val wA = StructureLayout.widthOf(a)
+                            val hA = StructureLayout.heightOf(a)
+                            val wB = StructureLayout.widthOf(b)
+                            val hB = StructureLayout.heightOf(b)
                             val aCenter = Offset(
-                                board.worldToScreenX(a.x + NODE_W / 2f),
-                                board.worldToScreenY(a.y + NODE_H_EST / 2f),
+                                board.worldToScreenX(a.x + wA / 2f),
+                                board.worldToScreenY(a.y + hA / 2f),
                             )
                             val bCenter = Offset(
-                                board.worldToScreenX(b.x + NODE_W / 2f),
-                                board.worldToScreenY(b.y + NODE_H_EST / 2f),
+                                board.worldToScreenX(b.x + wB / 2f),
+                                board.worldToScreenY(b.y + hB / 2f),
                             )
-                            val halfW = NODE_W / 2f * board.scale
-                            val halfH = NODE_H_EST / 2f * board.scale
                             RenderEdge(
                                 linkId = link.id,
                                 type = type,
                                 colorRole = link.colorRole(),
-                                start = trimToNodeEdge(from = bCenter, to = aCenter, halfW = halfW, halfH = halfH),
-                                end = trimToNodeEdge(from = aCenter, to = bCenter, halfW = halfW, halfH = halfH),
+                                // Each end is trimmed against the size of ITS OWN card, so a resized
+                                // node still gets its lines stopped at the edge.
+                                start = trimToNodeEdge(
+                                    from = bCenter,
+                                    to = aCenter,
+                                    halfW = wA / 2f * board.scale,
+                                    halfH = hA / 2f * board.scale,
+                                ),
+                                end = trimToNodeEdge(
+                                    from = aCenter,
+                                    to = bCenter,
+                                    halfW = wB / 2f * board.scale,
+                                    halfH = hB / 2f * board.scale,
+                                ),
                                 midBoard = Offset(
-                                    (a.x + b.x) / 2f + NODE_W / 2f,
-                                    (a.y + b.y) / 2f + NODE_H_EST / 2f,
+                                    (a.x + wA / 2f + b.x + wB / 2f) / 2f,
+                                    (a.y + hA / 2f + b.y + hB / 2f) / 2f,
                                 ),
                                 label = if (type.key == LinkCatalog.DEFAULT_KEY && link.label == null) {
                                     null
@@ -730,10 +974,19 @@ fun BoardScreen(
                     }
                 }
 
-                // Node actions, or the pending-link hint
-                val selectedNode = selectedId?.let { NodeStore.byId(it) }
+                // Pending modes replace the action square with one instruction, so the board never asks
+                // for two things at once.
                 if (!formOpen) {
-                    if (connectFrom != null) {
+                    if (reattachFrom != null) {
+                        HintBar(
+                            text = stringResource(R.string.reattach_hint),
+                            onCancel = {
+                                reattachFrom = null
+                                AppLog.i("Board", "reattach cancelled")
+                                snack(context.getString(R.string.reattach_cancelled))
+                            },
+                        )
+                    } else if (connectFrom != null) {
                         HintBar(
                             text = stringResource(
                                 R.string.link_choose_hint,
@@ -744,40 +997,7 @@ fun BoardScreen(
                                 pendingLabel = null
                                 pendingType = LinkCatalog.default
                                 AppLog.i("Board", "link cancelled")
-                                scope.launch {
-                                    snackbarHostState.showSnackbar(context.getString(R.string.connect_cancelled))
-                                }
-                            },
-                        )
-                    } else if (selectedNode != null) {
-                        NodeActionBar(
-                            nodeName = selectedNode.name,
-                            linkCount = NodeStore.linksOf(selectedNode.id).size,
-                            onLinks = {
-                                panel = Panel.NodeInfo(selectedNode.id)
-                                AppLog.i("Board", "node panel opened for '" + selectedNode.name + "'")
-                            },
-                            onLink = {
-                                panel = Panel.Picker(selectedNode.id)
-                                AppLog.i("Board", "link manager opened for '" + selectedNode.name + "'")
-                            },
-                            onDelete = {
-                                val removed = NodeStore.remove(context, selectedNode.id)
-                                selectedId = null
-                                panel = null
-                                if (removed != null) {
-                                    scope.launch {
-                                        val result = snackbarHostState.showSnackbar(
-                                            message = context.getString(R.string.node_deleted),
-                                            actionLabel = context.getString(R.string.undo),
-                                            withDismissAction = true,
-                                        )
-                                        if (result == SnackbarResult.ActionPerformed) {
-                                            NodeStore.restore(context, removed.first, removed.second)
-                                            AppLog.i("Board", "delete undone: " + removed.first.name)
-                                        }
-                                    }
-                                }
+                                snack(context.getString(R.string.connect_cancelled))
                             },
                         )
                     }
@@ -884,6 +1104,37 @@ fun BoardScreen(
                 }
             }
 
+            // ---- the node action square: four bars around the selected node ----
+            //
+            // It is drawn in screen space, so the buttons keep a real touch target at every zoom,
+            // and it steps aside while a panel, a dialog or a pending mode owns the screen.
+            val barsNode = selectedId?.let { NodeStore.byId(it) }
+            if (barsNode != null &&
+                !formOpen &&
+                panel == null &&
+                connectFrom == null &&
+                reattachFrom == null &&
+                textDialogFor == null &&
+                notesDialogFor == null &&
+                detailsFor == null &&
+                pictureDialogFor == null &&
+                viewMode == ViewMode.Board &&
+                !hidden.contains(barsNode.id)
+            ) {
+                val nodeW = StructureLayout.widthOf(barsNode)
+                val nodeH = StructureLayout.heightOf(barsNode)
+                NodeActionBars(
+                    centreX = board.worldToScreenX(barsNode.x + nodeW / 2f),
+                    centreY = board.worldToScreenY(barsNode.y + nodeH / 2f),
+                    nodeWidthPx = nodeW * board.scale,
+                    nodeHeightPx = nodeH * board.scale,
+                    viewportWidth = board.viewportW,
+                    viewportHeight = board.viewportH,
+                    clipboardHasContent = NodeClipboard.hasContent,
+                    onAction = runNodeAction,
+                )
+            }
+
             // ---- panels: exactly one can be open, and each one covers the board ----
             when (val open = panel) {
                 is Panel.NodeInfo -> NodeStore.byId(open.id)?.let { node ->
@@ -933,6 +1184,7 @@ fun BoardScreen(
                         },
                         onNudge = { dx, dy -> NodeStore.moveSubtree(context, node.id, dx, dy) },
                         onArrange = arrangeNow,
+                        onDetails = { detailsFor = node.id },
                         onDelete = {
                             val removed = NodeStore.remove(context, node.id)
                             panel = null
@@ -1023,6 +1275,25 @@ fun BoardScreen(
                     )
                 }
 
+                is Panel.Style -> NodeStore.byId(open.id)?.let { node ->
+                    NodeStylePanel(
+                        node = node,
+                        onSize = { value ->
+                            NodeStore.updateNode(context, node.copy(size = value))
+                            AppLog.i("Style", "size -> " + value)
+                        },
+                        onColor = { key ->
+                            NodeStore.updateNode(context, node.copy(color = key))
+                            AppLog.i("Style", "colour -> " + (key ?: "default"))
+                        },
+                        onShape = { key ->
+                            NodeStore.updateNode(context, node.copy(shape = key))
+                            AppLog.i("Style", "shape -> " + key)
+                        },
+                        onClose = { panel = null },
+                    )
+                }
+
                 Panel.Settings -> ProjectSettingsPanel(
                     pattern = pattern,
                     palette = palette,
@@ -1054,6 +1325,68 @@ fun BoardScreen(
 
                 null -> Unit
             }
+
+            // ---- node dialogs: at most one at a time, driven by the action square ----
+            val textNode = textDialogFor?.let { NodeStore.byId(it) }
+            if (textNode != null) {
+                NodeTextDialog(
+                    initial = textNode.name,
+                    onSave = { name ->
+                        if (name.isNotEmpty()) {
+                            NodeStore.updateNode(context, textNode.copy(name = name))
+                            snack(context.getString(R.string.node_renamed, name))
+                        }
+                        textDialogFor = null
+                    },
+                    onDismiss = { textDialogFor = null },
+                )
+            }
+
+            val notesNode = notesDialogFor?.let { NodeStore.byId(it) }
+            if (notesNode != null) {
+                NodeNotesDialog(
+                    initial = notesNode.description,
+                    onSave = { text ->
+                        NodeStore.updateNode(context, notesNode.copy(description = text))
+                        snack(context.getString(R.string.notes_saved))
+                        notesDialogFor = null
+                    },
+                    onDismiss = { notesDialogFor = null },
+                )
+            }
+
+            val detailsNode = detailsFor?.let { NodeStore.byId(it) }
+            if (detailsNode != null) {
+                NodeDetailsDialog(
+                    title = detailsNode.name,
+                    body = NodeStore.describe(detailsNode.id),
+                    onCopy = {
+                        clipboard.setText(AnnotatedString(NodeStore.describe(detailsNode.id)))
+                        AppLog.i("Node", "details copied for '" + detailsNode.name + "'")
+                        snack(context.getString(R.string.details_copied))
+                    },
+                    onDismiss = { detailsFor = null },
+                )
+            }
+
+            val pictureNode = pictureDialogFor?.let { NodeStore.byId(it) }
+            if (pictureNode != null) {
+                NodePictureDialog(
+                    onReplace = {
+                        pictureDialogFor = null
+                        imageTarget = pictureNode.id
+                        pickImage.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                        )
+                    },
+                    onRemove = {
+                        NodeStore.updateNode(context, pictureNode.copy(picUri = null))
+                        pictureDialogFor = null
+                        snack(context.getString(R.string.picture_removed))
+                    },
+                    onDismiss = { pictureDialogFor = null },
+                )
+            }
         }
     }
 }
@@ -1082,10 +1415,12 @@ private fun MiniMap(
     var minY = viewTop
     var maxY = viewBottom
     nodes.forEach { n ->
+        val w = StructureLayout.widthOf(n)
+        val h = StructureLayout.heightOf(n)
         if (n.x < minX) minX = n.x
-        if (n.x + NODE_W > maxX) maxX = n.x + NODE_W
+        if (n.x + w > maxX) maxX = n.x + w
         if (n.y < minY) minY = n.y
-        if (n.y + NODE_H_EST > maxY) maxY = n.y + NODE_H_EST
+        if (n.y + h > maxY) maxY = n.y + h
     }
     val padX = (maxX - minX) * 0.12f + 40f
     val padY = (maxY - minY) * 0.12f + 40f
@@ -1118,8 +1453,14 @@ private fun MiniMap(
                 val b = NodeStore.byId(link.toId) ?: return@forEach
                 drawLine(
                     color = linkColor,
-                    start = Offset((a.x + NODE_W / 2f - minX) * sx, (a.y + NODE_H_EST / 2f - minY) * sy),
-                    end = Offset((b.x + NODE_W / 2f - minX) * sx, (b.y + NODE_H_EST / 2f - minY) * sy),
+                    start = Offset(
+                        (a.x + StructureLayout.widthOf(a) / 2f - minX) * sx,
+                        (a.y + StructureLayout.heightOf(a) / 2f - minY) * sy,
+                    ),
+                    end = Offset(
+                        (b.x + StructureLayout.widthOf(b) / 2f - minX) * sx,
+                        (b.y + StructureLayout.heightOf(b) / 2f - minY) * sy,
+                    ),
                     strokeWidth = 1.5f,
                 )
             }
@@ -1128,7 +1469,7 @@ private fun MiniMap(
                 drawRect(
                     color = nodeColor,
                     topLeft = Offset((n.x - minX) * sx, (n.y - minY) * sy),
-                    size = Size(NODE_W * sx, NODE_H_EST * sy),
+                    size = Size(StructureLayout.widthOf(n) * sx, StructureLayout.heightOf(n) * sy),
                 )
             }
 
@@ -1190,68 +1531,9 @@ private fun LinkLabelChip(
     }
 }
 
-@Composable
-private fun NodeActionBar(
-    nodeName: String,
-    linkCount: Int,
-    onLinks: () -> Unit,
-    onLink: () -> Unit,
-    onDelete: () -> Unit,
-) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = Spacing.l, vertical = Spacing.s),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = nodeName,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = stringResource(R.string.node_action_links, linkCount),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            TextButton(
-                onClick = onLinks,
-                modifier = Modifier.heightIn(min = Sizes.touchMin),
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.MyLocation,
-                    contentDescription = null,
-                    modifier = Modifier.size(Sizes.iconSm),
-                )
-                Spacer(Modifier.width(Spacing.xs))
-                Text(stringResource(R.string.link_action_links))
-            }
-            TextButton(
-                onClick = onLink,
-                modifier = Modifier.heightIn(min = Sizes.touchMin),
-            ) {
-                Text(stringResource(R.string.link_action))
-            }
-            TextButton(
-                onClick = onDelete,
-                modifier = Modifier.heightIn(min = Sizes.touchMin),
-            ) {
-                Text(
-                    text = stringResource(R.string.delete_node),
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-        }
-    }
-}
+// The single-row node action bar (Links · Link · Delete) that shipped in v0.6.0/v0.7.0 was
+// replaced in v0.8.0 by the four-bar action square — NodeActionBars — which is generated from
+// NodeActionCatalog and carries every node operation, not just three.
 
 @Composable
 private fun HintBar(text: String, onCancel: () -> Unit) {
@@ -1346,11 +1628,25 @@ private fun BoardNode(
     onDragEnd: () -> Unit,
 ) {
     val linkCount = NodeStore.linksOf(node.id).size
+    val scheme = MaterialTheme.colorScheme
+    // A colour override is a theme role blended into the card tone, so the card stays opaque and
+    // the text keeps its contrast in both day and night mode.
+    val role = node.color?.let { key -> LinkColor.values().firstOrNull { it.name.equals(key, true) } }
+    val container = if (role == null) {
+        scheme.surfaceVariant
+    } else {
+        lerp(scheme.surfaceVariant, themeRoleColor(scheme, role), 0.30f)
+    }
+    // A pill clips its own corners, so its text has to start further in.
+    val pill = node.shape == NodeStyle.SHAPE_PILL
+    val padH = if (pill) Spacing.xxl else Spacing.m
+    val padV = if (pill) Spacing.l else Spacing.m
 
     Card(
         modifier = Modifier
             .offset { IntOffset(node.x.roundToInt(), node.y.roundToInt()) }
-            .width(NODE_W.dp)
+            .width(StructureLayout.widthOf(node).dp)
+            .heightIn(min = StructureLayout.heightOf(node).dp)
             .pointerInput(node.id) {
                 detectTapGestures(
                     onTap = { onTap() },
@@ -1378,10 +1674,8 @@ private fun BoardNode(
                     )
                 }
             },
-        shape = RoundedCornerShape(Radius.medium),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-        ),
+        shape = nodeShapeOf(node.shape),
+        colors = CardDefaults.cardColors(containerColor = container),
         elevation = CardDefaults.cardElevation(defaultElevation = if (selected) 4.dp else 0.dp),
         border = when {
             selected -> BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
@@ -1389,7 +1683,7 @@ private fun BoardNode(
             else -> null
         },
     ) {
-        Column(modifier = Modifier.padding(Spacing.m)) {
+        Column(modifier = Modifier.padding(horizontal = padH, vertical = padV)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (node.isRoot) {
                     Icon(

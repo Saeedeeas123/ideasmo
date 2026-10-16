@@ -3,7 +3,7 @@
 An idea processor for Android: capture an idea, give it structure, keep it in one place.
 Personal project of Saeed (`com.saeed.ideasmo`), built entirely on-device.
 
-**Current version: v0.7.0** (versionCode 7)
+**Current version: v0.8.0** (versionCode 8)
 
 ## What it is
 
@@ -17,7 +17,9 @@ line style, arrow mode and colour role.
 | Area | What works |
 |---|---|
 | Board | Pan, pinch zoom 25–200 %, drag nodes, grid/pattern surface, travelling minimap, reset view, **origin marker + Origin button** |
-| Nodes | Create with priority / name / description / picture; select, drag, delete with Undo |
+| Nodes | **Node action square**: four bars around the selected node — Text · Image · Connect · Notes · More / Copy · Cut · Paste · Delete / Child · Sibling · Duplicate · Reattach / Resize · Colour · Shape. Generated from `NodeActionCatalog` (every action has an id + description) |
+| Node style | Per-node size (4 steps), colour (5 theme roles), shape (4 shapes) — and the auto-layout measures each card, so a resized node gets its own space |
+| Data surface | Every node and link carries an id; **More → Details** shows a node as machine-readable text (fields, coordinates from the origin, links with ids) and copies it in one tap |
 | Links | Create from a node or from the link manager; **tap a link to open the inspector** |
 | Link inspector | Change the relation, swap its direction, override its colour, add your own phrase, see the other relations between the same pair, delete with Undo |
 | Node panel | **Links out** in stored branch order (up/down arrows, auto-order by name / priority / age) and **Links in**; every row opens the inspector |
@@ -74,9 +76,15 @@ DESIGN.md                    the design contract (tokens, screens, decisions, ho
 | v0.5.0 | Full typed-relation system (7 families / 42 types), link manager, real Settings + Help |
 | v0.6.0 | Clickable/editable links (link inspector), node panel (links in/out + branch order), structure layer (central nodes, collapse, 5-direction Arrange), 8 board modes + 6 board themes |
 | v0.7.0 | **Board origin** — a fixed (0, 0) with a marker on the canvas; Arrange now anchors the central node on the origin (deterministic, cannot drift); Origin button; Show-the-origin setting. Fixed the v0.6.0 double-origin drift bug |
+| v0.8.0 | **Node action square** (four bars around the selected node) with 16 node actions from a catalog: rename, image, connect, notes, clipboard (copy/cut/paste), delete, child/sibling/duplicate, **reattach** (re-parent with cycle protection), resize/colour/shape — plus per-node style honoured by the layout, an app node clipboard, and a Details view that copies a node as machine-readable data |
 
-## Honest limits (v0.7.0)
+## Honest limits (v0.8.0)
 
+- **Group** and **Schema** from the reference app are not built — Group needs multi-select (which the
+  board does not have yet) and Schema has two plausible meanings. Both are waiting on your answer.
+- The clipboard is the **app's own** (nodes, not text) and lives in memory only.
+- A node's height is still an estimate for the layout (the card grows with its content), so a very
+  long note can make a card slightly taller than the space the auto-layout reserved.
 - Arrange is a **tree** layout: dense graphs with many cross-links are tidied along their trees and the
   extra links stay where they are (no force-directed pass yet).
 - Arrange moves the map to the **origin**; if you had deliberately parked a map somewhere else in board

@@ -60,6 +60,11 @@ object StructureLayout {
     const val NODE_HALF_W = NODE_W / 2f
     const val NODE_HALF_H = NODE_H / 2f
 
+    /** The card's real size in board units — a node can be resized, and the layout must agree. */
+    fun widthOf(node: IdeaNode): Float = NODE_W * NodeStyle.sizeOf(node.size)
+
+    fun heightOf(node: IdeaNode): Float = NODE_H * NodeStyle.sizeOf(node.size)
+
     /**
      * Arranges the trees that start at the central nodes.
      * Returns positions for every node it touched; nodes outside those trees are absent, so a
@@ -90,7 +95,11 @@ object StructureLayout {
         } else {
             linear(byId, children, roots, direction, spacing, originX, originY)
         }
-        return if (anchorRootAtOrigin) anchorAt(laidOut, roots.first(), originX, originY) else laidOut
+        return if (anchorRootAtOrigin) {
+            anchorAt(laidOut, roots.first(), byId, originX, originY)
+        } else {
+            laidOut
+        }
     }
 
     /**
@@ -101,12 +110,16 @@ object StructureLayout {
     private fun anchorAt(
         positions: Map<String, LayoutPoint>,
         anchorId: String,
+        byId: Map<String, IdeaNode>,
         originX: Float,
         originY: Float,
     ): Map<String, LayoutPoint> {
         val anchor = positions[anchorId] ?: return positions
-        val dx = originX - (anchor.x + NODE_HALF_W)
-        val dy = originY - (anchor.y + NODE_HALF_H)
+        val anchorNode = byId[anchorId]
+        val halfW = if (anchorNode != null) widthOf(anchorNode) / 2f else NODE_HALF_W
+        val halfH = if (anchorNode != null) heightOf(anchorNode) / 2f else NODE_HALF_H
+        val dx = originX - (anchor.x + halfW)
+        val dy = originY - (anchor.y + halfH)
         if (dx == 0f && dy == 0f) return positions
         return positions.mapValues { (_, point) -> LayoutPoint(point.x + dx, point.y + dy) }
     }
@@ -155,7 +168,10 @@ object StructureLayout {
         originY: Float,
     ): Map<String, LayoutPoint> {
         val horizontal = direction == LayoutDirection.Right || direction == LayoutDirection.Left
-        val extent = if (horizontal) NODE_H else NODE_W
+        // A node can be resized, so the extent along the sibling axis belongs to the node itself,
+        // and the step between two levels must clear the LARGEST card on the board.
+        val maxW = byId.values.maxOf { widthOf(it) }
+        val maxH = byId.values.maxOf { heightOf(it) }
         val gap = spacing.siblingGap
         val raw = LinkedHashMap<String, Pair<Int, Float>>()
         val visited = HashSet<String>()
@@ -163,6 +179,7 @@ object StructureLayout {
         fun place(id: String, depth: Int, start: Float): Float {
             if (!visited.add(id)) return 0f
             val node = byId[id] ?: return 0f
+            val extent = if (horizontal) heightOf(node) else widthOf(node)
             val kids = if (node.collapsed) {
                 emptyList()
             } else {
@@ -200,7 +217,7 @@ object StructureLayout {
             if (used > 0f) cursor += used + gap * 2f
         }
 
-        val levelStep = if (horizontal) NODE_W + spacing.levelGap else NODE_H + spacing.levelGap
+        val levelStep = if (horizontal) maxW + spacing.levelGap else maxH + spacing.levelGap
         return raw.mapValues { (_, value) ->
             val depth = value.first
             val along = value.second
@@ -222,7 +239,9 @@ object StructureLayout {
         originX: Float,
         originY: Float,
     ): Map<String, LayoutPoint> {
-        val radiusStep = 200f + spacing.levelGap
+        val maxW = byId.values.maxOf { widthOf(it) }
+        // Rings must clear the biggest card, so a resized node can never sit on top of its parent.
+        val radiusStep = maxOf(NODE_W, maxW) + spacing.levelGap
         val rootRadius = if (roots.size <= 1) 0f else radiusStep * 0.55f
         val raw = LinkedHashMap<String, Pair<Float, Float>>()
         val visited = HashSet<String>()
@@ -256,12 +275,15 @@ object StructureLayout {
             place(root, 0, i * span, (i + 1) * span)
         }
 
-        return raw.mapValues { (_, value) ->
+        return raw.mapValues { (id, value) ->
             val angle = value.first
             val radius = value.second
+            val node = byId[id]
+            val halfW = if (node != null) widthOf(node) / 2f else NODE_HALF_W
+            val halfH = if (node != null) heightOf(node) / 2f else NODE_HALF_H
             LayoutPoint(
-                originX + kotlin.math.cos(angle) * radius - NODE_HALF_W,
-                originY + kotlin.math.sin(angle) * radius - NODE_HALF_H,
+                originX + kotlin.math.cos(angle) * radius - halfW,
+                originY + kotlin.math.sin(angle) * radius - halfH,
             )
         }
     }

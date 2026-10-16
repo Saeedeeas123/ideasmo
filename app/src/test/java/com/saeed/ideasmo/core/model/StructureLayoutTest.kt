@@ -371,4 +371,51 @@ class StructureLayoutTest {
         assertEquals(800f + StructureLayout.NODE_W + LayoutSpacing.Normal.levelGap, positions.getValue("a").x, 0.01f)
         assertEquals(600f, positions.getValue("a").y, 0.01f)
     }
+
+    @Test
+    fun aResizedNodeGetsItsOwnSpaceInTheLayout() {
+        // Sizes are per node, so both the sibling axis and the step between levels have to follow
+        // the real card sizes — otherwise a large card would be laid out on top of its neighbour.
+        val root = node("root").copy(size = 1.5f)
+        val small = node("a").copy(size = 0.8f)
+        val other = node("b")
+        val nodes = listOf(root, small, other)
+        val links = listOf(link("l1", "root", "a", 0), link("l2", "root", "b", 1))
+
+        val positions = StructureLayout.arrange(
+            nodes = nodes,
+            links = links,
+            preferredRoots = listOf("root"),
+            direction = LayoutDirection.Right,
+            spacing = LayoutSpacing.Normal,
+        )
+
+        // The step between levels clears the LARGEST card on the board (1.5x = 300 units).
+        assertEquals(
+            300f + LayoutSpacing.Normal.levelGap,
+            positions.getValue("a").x - positions.getValue("root").x,
+            0.01f,
+        )
+        // Siblings are separated by their own height plus the sibling gap.
+        val gapBetween = positions.getValue("b").y - positions.getValue("a").y
+        assertEquals(StructureLayout.heightOf(small) + LayoutSpacing.Normal.siblingGap, gapBetween, 0.01f)
+        assertTrue("the second card must not overlap the first", gapBetween >= StructureLayout.heightOf(other))
+    }
+
+    @Test
+    fun aResizedCentralNodeIsStillCentredOnTheOrigin() {
+        val nodes = listOf(node("root").copy(size = 1.25f), node("a"), node("b"))
+        val links = listOf(link("l1", "root", "a"), link("l2", "root", "b"))
+
+        val positions = StructureLayout.arrange(
+            nodes = nodes,
+            links = links,
+            preferredRoots = listOf("root"),
+            anchorRootAtOrigin = true,
+        )
+
+        val root = positions.getValue("root")
+        assertEquals(BoardSpace.ORIGIN_X, root.x + StructureLayout.widthOf(nodes[0]) / 2f, 0.01f)
+        assertEquals(BoardSpace.ORIGIN_Y, root.y + StructureLayout.heightOf(nodes[0]) / 2f, 0.01f)
+    }
 }

@@ -28,10 +28,17 @@ import kotlin.math.sin
 internal fun linkColor(role: LinkColor): Color = linkColorOf(MaterialTheme.colorScheme, role)
 
 /**
+ * Maps a link's colour role onto the theme.
  * Non-composable variant: the board resolves colours once per frame and passes them into
  * the draw lambda, which cannot call a @Composable function.
  */
-internal fun linkColorOf(scheme: ColorScheme, role: LinkColor): Color = when (role) {
+internal fun linkColorOf(scheme: ColorScheme, role: LinkColor): Color = themeRoleColor(scheme, role)
+
+/**
+ * The one place a Material colour role becomes a colour. Links and node cards both read from here,
+ * so a role can never mean two different things in two parts of the app.
+ */
+internal fun themeRoleColor(scheme: ColorScheme, role: LinkColor): Color = when (role) {
     LinkColor.Primary -> scheme.primary
     LinkColor.Secondary -> scheme.secondary
     LinkColor.Tertiary -> scheme.tertiary
