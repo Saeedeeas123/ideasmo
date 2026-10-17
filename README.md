@@ -3,7 +3,7 @@
 An idea processor for Android: capture an idea, give it structure, keep it in one place.
 Personal project of Saeed (`com.saeed.ideasmo`), built entirely on-device.
 
-**Current version: v0.13.0** (versionCode 13)
+**Current version: v0.14.0** (versionCode 14)
 
 ## What it is
 
@@ -87,7 +87,9 @@ DESIGN.md                    the design contract (tokens, screens, decisions, ho
 
 | v0.13.0 | **The Drive** — one private file store for the whole app (`filesDir/drive`) with a light file manager: tappable breadcrumb, folders, import any file, new folder, delete (moved to `.trash`, nothing destroyed), and a viewer that opens images and text. **It is the same storage the nodes use**: a file picked for a node is copied into the Drive under `Attachments/<node>/`, and a node's Image/Files dialogs can attach a file that is already in the Drive. The pre-Drive `pics`/`files` folders are migrated in on first run and every stored attachment path is rewritten, so nothing is lost. |
 
-## Honest limits (v0.13.0)
+| v0.14.0 | **The Drive's basic operations**: rename, move (into any folder), make a copy, delete, **search** (recursive, by name) and **sort** (name / size / newest) — plus **open with…**: any file is handed to the app that knows how to read it through a FileProvider, so PDFs, documents, audio and video finally open. A **note can be saved into the Drive** as a text file. And the **insets bug is fixed for good**: every custom surface at the bottom of the screen (the Drive's action bar, the app's notice strip, the group bar) now carries the system-bar inset itself, so nothing hides under the home indicator again. |
+
+## Honest limits (v0.14.0)
 
 - **Group** and **Schema** from the reference app are still not built: Schema is deferred on your
   instruction, and Group is waiting on one answer — is a group a *frame that holds* the selected

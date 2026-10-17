@@ -1659,6 +1659,16 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                         notice = context.getString(R.string.notes_saved)
                     },
                     onRemove = { index -> NodeStore.removeNote(context, notesNode.id, index) },
+                    onSaveToDrive = { index, text ->
+                        val folder = DriveStore.nodeFolder(notesNode.name)
+                        val name = (notesNode.name.ifBlank { "note" }) + "-note-" + (index + 1) + ".txt"
+                        val path = DriveStore.writeText(folder, name, text)
+                        notice = if (path == null) {
+                            context.getString(R.string.drive_import_failed)
+                        } else {
+                            context.getString(R.string.note_to_drive_done, name)
+                        }
+                    },
                     onDismiss = { notesFor = null },
                 )
             }

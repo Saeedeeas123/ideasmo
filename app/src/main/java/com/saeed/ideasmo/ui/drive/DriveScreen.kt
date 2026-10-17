@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -26,15 +27,21 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
 import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.CreateNewFolder
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.automirrored.outlined.DriveFileMove
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Movie
 import androidx.compose.material.icons.outlined.MusicNote
+import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.PictureAsPdf
-import androidx.compose.material.icons.outlined.CreateNewFolder
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
@@ -62,13 +69,14 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
-import androidx.compose.material.icons.outlined.Delete
 import com.saeed.ideasmo.R
 import com.saeed.ideasmo.core.drive.DriveEntry
 import com.saeed.ideasmo.core.drive.DriveKind
+import com.saeed.ideasmo.core.drive.DriveOpen
 import com.saeed.ideasmo.core.drive.DriveStore
 import com.saeed.ideasmo.core.log.AppLog
 import com.saeed.ideasmo.core.util.decodeThumbnail
+import com.saeed.ideasmo.ui.components.ChoiceChip
 import com.saeed.ideasmo.ui.components.EmptyState
 import com.saeed.ideasmo.ui.components.SectionTitle
 import com.saeed.ideasmo.ui.theme.Radius
@@ -79,13 +87,10 @@ import java.io.File
 /**
  * **The Drive: the app's own light file manager.**
  *
- * Saeed's order (v0.13.0): a personal drive where every file lives, reachable from the whole app, with
- * a simple, light file manager that can open the files it holds — and directly connected to what a node
- * carries. This screen is deliberately plain: one column of rows, a breadcrumb, two actions
- * (import a file, make a folder) and a viewer.
- *
- * Files are shown with their kind icon and their size; a folder opens in place; an image or a text file
- * opens in a viewer; anything else says honestly that it has no in-app viewer yet.
+ * Saeed's orders: a personal drive where every file lives, reachable from the whole app, with a simple,
+ * light file manager that can open the files it holds, directly connected to what a node carries
+ * (v0.13.0) — plus, in v0.14.0, the **basic operations**: rename, move, copy, sort, search, and opening a
+ * file in the app that knows how to read it.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -94,12 +99,20 @@ fun DriveScreen(onBack: () -> Unit) {
     // Where we are, as a Drive-relative path ("" = the root).
     var here by remember { mutableStateOf("") }
     var refresh by remember { mutableStateOf(0) }
+    var sort by remember { mutableStateOf(DriveStore.Sort.Name) }
+    var query by remember { mutableStateOf("") }
     var viewing by remember { mutableStateOf<DriveEntry?>(null) }
     var deleting by remember { mutableStateOf<DriveEntry?>(null) }
+    var renaming by remember { mutableStateOf<DriveEntry?>(null) }
+    var moving by remember { mutableStateOf<DriveEntry?>(null) }
     var newFolder by remember { mutableStateOf(false) }
     var notice by remember { mutableStateOf<String?>(null) }
 
-    val entries = remember(here, refresh) { DriveStore.list(here) }
+    val searching = query.isNotBlank()
+    val entries = remember(here, refresh, sort, query) {
+        if (searching) DriveStore.search(query, here) else DriveStore.list(here, sort)
+    }
+
     val importFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) {
             AppLog.i("Drive", "import cancelled")
@@ -140,8 +153,10 @@ fun DriveScreen(onBack: () -> Unit) {
                 navigationIcon = {
                     IconButton(
                         onClick = {
-                            if (here.isEmpty()) {
+                            if (here.isEmpty() && !searching) {
                                 onBack()
+                            } else if (searching) {
+                                query = ""
                             } else {
                                 here = DriveStore.parentOf(here)
                             }
@@ -156,10 +171,13 @@ fun DriveScreen(onBack: () -> Unit) {
             )
         },
         bottomBar = {
+            // navigationBarsPadding: a custom bottom bar does NOT get the system-bar inset from Scaffold,
+            // which is exactly how the buttons ended up under the home indicator (Saeed's report).
             Surface(color = MaterialTheme.colorScheme.surfaceVariant) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .navigationBarsPadding()
                         .padding(horizontal = Spacing.s, vertical = Spacing.s),
                     horizontalArrangement = Arrangement.spacedBy(Spacing.s),
                     verticalAlignment = Alignment.CenterVertically,
@@ -193,7 +211,44 @@ fun DriveScreen(onBack: () -> Unit) {
                 .fillMaxSize()
                 .padding(inner),
         ) {
-            Breadcrumb(here) { target -> here = target }
+            Breadcrumb(here) { target ->
+                here = target
+                query = ""
+            }
+
+            // Search + sort: the two operations that belong to the whole list, not to one row.
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = Spacing.screenH, vertical = Spacing.xs),
+                singleLine = true,
+                shape = RoundedCornerShape(Radius.medium),
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Outlined.Search,
+                        contentDescription = null,
+                        modifier = Modifier.size(Sizes.iconSm),
+                    )
+                },
+                placeholder = { Text(stringResource(R.string.drive_search)) },
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = Spacing.screenH, vertical = Spacing.xs),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.s),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                SortChip(R.string.drive_sort_name, sort == DriveStore.Sort.Name) { sort = DriveStore.Sort.Name }
+                SortChip(R.string.drive_sort_size, sort == DriveStore.Sort.Size) { sort = DriveStore.Sort.Size }
+                SortChip(R.string.drive_sort_new, sort == DriveStore.Sort.Newest) {
+                    sort = DriveStore.Sort.Newest
+                }
+            }
+
             notice?.let { text ->
                 Text(
                     text = text,
@@ -202,12 +257,17 @@ fun DriveScreen(onBack: () -> Unit) {
                     modifier = Modifier.padding(horizontal = Spacing.screenH, vertical = Spacing.xs),
                 )
             }
+
             if (entries.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     EmptyState(
                         icon = Icons.Outlined.CreateNewFolder,
-                        title = stringResource(R.string.drive_empty),
-                        detail = stringResource(R.string.drive_empty_detail),
+                        title = stringResource(
+                            if (searching) R.string.drive_no_results else R.string.drive_empty,
+                        ),
+                        detail = stringResource(
+                            if (searching) R.string.drive_no_results_detail else R.string.drive_empty_detail,
+                        ),
                     )
                 }
             } else {
@@ -218,8 +278,26 @@ fun DriveScreen(onBack: () -> Unit) {
                             onOpen = {
                                 if (entry.isFolder) {
                                     here = entry.relative
+                                    query = ""
                                 } else {
                                     viewing = entry
+                                }
+                            },
+                            onRename = { renaming = entry },
+                            onMove = { moving = entry },
+                            onCopy = {
+                                val copy = DriveStore.copy(entry.relative)
+                                notice = if (copy == null) {
+                                    context.getString(R.string.drive_copy_failed)
+                                } else {
+                                    context.getString(R.string.drive_copied, copy.substringAfterLast('/'))
+                                }
+                                refresh++
+                            },
+                            onOpenWith = {
+                                val path = DriveStore.absolute(entry.relative)
+                                if (path == null || !DriveOpen.openWith(context, path)) {
+                                    notice = context.getString(R.string.drive_no_app)
                                 }
                             },
                             onDelete = { deleting = entry },
@@ -230,8 +308,86 @@ fun DriveScreen(onBack: () -> Unit) {
         }
     }
 
-    viewing?.let { entry ->
-        DriveViewer(entry = entry, onDismiss = { viewing = null })
+    viewing?.let { entry -> DriveViewer(entry = entry, onDismiss = { viewing = null }) }
+
+    renaming?.let { entry ->
+        var name by remember(entry.relative) { mutableStateOf(entry.name) }
+        AlertDialog(
+            onDismissRequest = { renaming = null },
+            title = { Text(stringResource(R.string.drive_rename_title)) },
+            text = {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = RoundedCornerShape(Radius.medium),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        DriveStore.rename(entry.relative, name)
+                        renaming = null
+                        refresh++
+                    },
+                ) {
+                    Text(stringResource(R.string.drive_rename))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { renaming = null }) { Text(stringResource(R.string.cancel)) }
+            },
+        )
+    }
+
+    moving?.let { entry ->
+        val targets = remember(entry.relative) { DriveStore.folders() }
+        AlertDialog(
+            onDismissRequest = { moving = null },
+            title = { Text(stringResource(R.string.drive_move_title, entry.name)) },
+            text = {
+                Column(modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                    targets.forEach { folder ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    val ok = DriveStore.move(entry.relative, folder)
+                                    notice = if (ok) {
+                                        context.getString(R.string.drive_moved)
+                                    } else {
+                                        context.getString(R.string.drive_move_failed)
+                                    }
+                                    moving = null
+                                    refresh++
+                                }
+                                .heightIn(min = Sizes.listRowMin),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Folder,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.tertiary,
+                                modifier = Modifier.size(Sizes.iconSm),
+                            )
+                            Spacer(Modifier.width(Spacing.s))
+                            Text(
+                                text = if (folder.isEmpty()) {
+                                    stringResource(R.string.drive_title)
+                                } else {
+                                    folder
+                                },
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { moving = null }) { Text(stringResource(R.string.cancel)) }
+            },
+        )
     }
 
     deleting?.let { entry ->
@@ -289,6 +445,15 @@ fun DriveScreen(onBack: () -> Unit) {
     }
 }
 
+@Composable
+private fun SortChip(label: Int, selected: Boolean, onClick: () -> Unit) {
+    ChoiceChip(
+        text = stringResource(label),
+        selected = selected,
+        onClick = onClick,
+    )
+}
+
 /** Where you are: "Drive / Attachments / First idea", each step tappable. */
 @Composable
 private fun Breadcrumb(here: String, onJump: (String) -> Unit) {
@@ -297,7 +462,7 @@ private fun Breadcrumb(here: String, onJump: (String) -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState())
-            .padding(horizontal = Spacing.screenH, vertical = Spacing.s),
+            .padding(horizontal = Spacing.screenH, vertical = Spacing.xs),
         horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -336,9 +501,18 @@ private fun Breadcrumb(here: String, onJump: (String) -> Unit) {
     }
 }
 
-/** One row: kind icon, name, size and date, and a delete action. */
+/** One row: kind icon, name, size and date, and the operations menu. */
 @Composable
-private fun DriveRow(entry: DriveEntry, onOpen: () -> Unit, onDelete: () -> Unit) {
+private fun DriveRow(
+    entry: DriveEntry,
+    onOpen: () -> Unit,
+    onRename: () -> Unit,
+    onMove: () -> Unit,
+    onCopy: () -> Unit,
+    onOpenWith: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    var menu by remember(entry.relative) { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -373,21 +547,62 @@ private fun DriveRow(entry: DriveEntry, onOpen: () -> Unit, onDelete: () -> Unit
                 maxLines = 1,
             )
         }
-        IconButton(
-            onClick = onDelete,
-            modifier = Modifier.size(Sizes.touchMin),
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.DeleteOutline,
-                contentDescription = stringResource(R.string.att_remove),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        Box {
+            IconButton(onClick = { menu = true }, modifier = Modifier.size(Sizes.touchMin)) {
+                Icon(
+                    imageVector = Icons.Outlined.MoreVert,
+                    contentDescription = stringResource(R.string.drive_operations),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                if (!entry.isFolder && !DriveOpen.readableInside(entry.name)) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.drive_open_with)) },
+                        leadingIcon = { Icon(Icons.AutoMirrored.Outlined.OpenInNew, contentDescription = null) },
+                        onClick = { menu = false; onOpenWith() },
+                    )
+                }
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.drive_rename)) },
+                    leadingIcon = { Icon(Icons.Outlined.Description, contentDescription = null) },
+                    onClick = { menu = false; onRename() },
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.drive_move)) },
+                    leadingIcon = { Icon(Icons.AutoMirrored.Outlined.DriveFileMove, contentDescription = null) },
+                    onClick = { menu = false; onMove() },
+                )
+                if (!entry.isFolder) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.drive_copy)) },
+                        leadingIcon = { Icon(Icons.Outlined.Add, contentDescription = null) },
+                        onClick = { menu = false; onCopy() },
+                    )
+                }
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = stringResource(R.string.delete_node),
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Outlined.Delete,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                        )
+                    },
+                    onClick = { menu = false; onDelete() },
+                )
+            }
         }
     }
     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
 }
 
-/** The viewer: images fit the screen, text is shown as text, everything else says so honestly. */
+/** The viewer: images fit the screen, text is shown as text, everything else can go to its own app. */
 @Composable
 private fun DriveViewer(entry: DriveEntry, onDismiss: () -> Unit) {
     val context = LocalContext.current
@@ -448,7 +663,16 @@ private fun DriveViewer(entry: DriveEntry, onDismiss: () -> Unit) {
                     )
                 }
                 Spacer(Modifier.height(Spacing.m))
-                TextButton(onClick = onDismiss) { Text(stringResource(R.string.link_close)) }
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                    if (path != null) {
+                        TextButton(
+                            onClick = { DriveOpen.openWith(context, path) },
+                        ) {
+                            Text(stringResource(R.string.drive_open_with))
+                        }
+                    }
+                    TextButton(onClick = onDismiss) { Text(stringResource(R.string.link_close)) }
+                }
             }
         }
     }

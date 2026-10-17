@@ -181,6 +181,93 @@ object DriveStore {
 
     fun isFolder(relative: String): Boolean = resolve(relative)?.isDirectory == true
 
+    /** How the Drive orders its rows. Saeed asked for basic operations, and sorting is one of them. */
+    enum class Sort { Name, Size, Newest }
+
+    /** Everything in [relative], ordered by [sort] (folders always first). */
+    fun list(relative: String, sort: Sort): List<DriveEntry> {
+        val entries = list(relative)
+        val comparator: Comparator<DriveEntry> = when (sort) {
+            Sort.Name -> compareBy { it.name.lowercase() }
+            Sort.Size -> compareByDescending { it.sizeBytes }
+            Sort.Newest -> compareByDescending { it.modifiedAt }
+        }
+        return entries.sortedWith(compareByDescending<DriveEntry> { it.isFolder }.then(comparator))
+    }
+
+    /**
+     * Every file under [relative] whose name contains [query], ignoring case — the Drive's search.
+     * Folders are searched too, so a file three levels down is still found from the root.
+     */
+    fun search(query: String, relative: String = ""): List<DriveEntry> {
+        val needle = query.trim().lowercase()
+        if (needle.isEmpty()) return emptyList()
+        val dir = resolve(relative) ?: return emptyList()
+        val found = ArrayList<DriveEntry>()
+        dir.walkTopDown().forEach { file ->
+            if (file == dir) return@forEach
+            if (file.name == TRASH) return@forEach
+            if (!file.name.lowercase().contains(needle)) return@forEach
+            val rel = relativeOf(file.absolutePath) ?: return@forEach
+            found.add(
+                DriveEntry(
+                    name = file.name,
+                    relative = rel,
+                    isFolder = file.isDirectory,
+                    sizeBytes = if (file.isDirectory) 0L else file.length(),
+                    modifiedAt = file.lastModified(),
+                    kind = if (file.isDirectory) DriveKind.Folder else kindOf(file.name),
+                ),
+            )
+        }
+        return found.sortedWith(compareByDescending<DriveEntry> { it.isFolder }.thenBy { it.name.lowercase() })
+    }
+
+    /** Moves an entry into [targetFolder] (both Drive-relative). Refused when it would land on itself. */
+    fun move(relative: String, targetFolder: String): Boolean {
+        val source = resolve(relative) ?: return false
+        val target = resolve(targetFolder) ?: return false
+        if (!source.exists() || !target.isDirectory) return false
+        if (targetFolder == DrivePaths.parentOf(relative)) return false
+        if (targetFolder.startsWith(relative)) {
+            AppLog.w("Drive", "refused to move " + relative + " inside itself")
+            return false
+        }
+        val destination = File(target, uniqueName(target, source.name))
+        val moved = source.renameTo(destination)
+        AppLog.i("Drive", (if (moved) "moved " else "MOVE FAILED ") + relative + " -> " + targetFolder)
+        return moved
+    }
+
+    /** Copies a file next to itself with a counter ("photo (2).jpg"). Folders are not copied. */
+    fun copy(relative: String): String? {
+        val source = resolve(relative) ?: return null
+        if (!source.isFile) return null
+        val parent = source.parentFile ?: return null
+        val target = File(parent, uniqueName(parent, source.name))
+        return try {
+            source.copyTo(target, overwrite = false)
+            AppLog.i("Drive", "copied " + relative + " -> " + target.name)
+            relativeOf(target.absolutePath)
+        } catch (t: Throwable) {
+            AppLog.e("Drive", "copy failed for " + relative, t)
+            null
+        }
+    }
+
+    /** Every folder in the Drive, as relative paths — what the Move dialog offers. */
+    fun folders(): List<String> {
+        val base = root ?: return emptyList()
+        val result = ArrayList<String>()
+        result.add("")
+        base.walkTopDown().forEach { file ->
+            if (file != base && file.isDirectory && file.name != TRASH) {
+                relativeOf(file.absolutePath)?.let { result.add(it) }
+            }
+        }
+        return result.sorted()
+    }
+
     /** Bytes used by the whole Drive. */
     fun usedBytes(): Long = root?.walkTopDown()?.filter { it.isFile }?.sumOf { it.length() } ?: 0L
 

@@ -58,6 +58,7 @@ internal fun NodeNotesDialog(
     node: IdeaNode,
     onAdd: (String) -> Unit,
     onRemove: (Int) -> Unit,
+    onSaveToDrive: (index: Int, text: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var draft by remember(node.id) { mutableStateOf("") }
@@ -91,6 +92,12 @@ internal fun NodeNotesDialog(
                                 .weight(1f)
                                 .padding(vertical = Spacing.s),
                         )
+                        TextButton(
+                            onClick = { onSaveToDrive(index, note) },
+                            modifier = Modifier.heightIn(min = Sizes.touchMin),
+                        ) {
+                            Text(stringResource(R.string.note_to_drive))
+                        }
                         IconButton(
                             onClick = { onRemove(index) },
                             modifier = Modifier.size(Sizes.touchMin),

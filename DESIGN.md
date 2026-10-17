@@ -661,3 +661,33 @@ no dependency where a Compose `Canvas` would do.
 - Still open: a file in the Drive cannot be OPENED in another app yet (no FileProvider — the Drive shows
   what it can show itself); no rename or move inside the Drive (create, import, delete are in); notes are
   not yet exported as Drive files even though `DriveStore.writeText` exists for it.
+
+### v0.14.0 sign-off (2026-10-17, third round)
+- **The Drive's basic operations** (Saeed: "add a set of basic operators and operations"). `DriveStore`
+  gained `rename`, `move(relative, targetFolder)`, `copy(relative)`, `folders()`, `search(query)` and
+  `list(relative, Sort)` with `Sort = Name / Size / Newest`; `DriveScreen` exposes them: a per-row ⋮ menu
+  (Rename · Move · Make a copy · Delete, plus Open with… when the app cannot show the file itself), a
+  search field above the list (recursive, case-insensitive) and three sort chips. Move refuses to drop a
+  folder inside itself, copy never overwrites.
+- **Open with… for any file.** A `FileProvider` (`authorities = com.saeed.ideasmo.files`, paths in
+  `res/xml/provider_paths.xml`) plus `core/drive/DriveOpen.kt`: `mimeOf(name)` maps the kind to the mime
+  type another app needs, and `openWith(context, path)` hands the file over with a read grant. Images and
+  text are still shown inside the app; everything else can now leave it — and when no app on the phone can
+  take it, the UI says so instead of failing silently.
+- **A note can be saved into the Drive**: the notes dialog has a "To Drive" action per note, which writes
+  `<node>-note-N.txt` into the node's Drive folder (`DriveStore.writeText`).
+- **THE INSETS BUG, FIXED AS A RULE** (Saeed: it hid under the home indicator again). Compose's Scaffold
+  gives the system-bar inset to its CONTENT, not to a custom `bottomBar`, and the app had two custom bottom
+  surfaces: the Drive's action bar and the app-wide notice strip — both were drawing under the home
+  indicator. Both now carry `Modifier.navigationBarsPadding()`, and so does `BoardMultiBar`, so the same
+  mistake cannot reappear in a bar that is added later. The rule is written into the code comment at each
+  site: a custom surface at the bottom of the screen carries the inset itself.
+- Verified how: `:app:testDebugUnitTest` **48/48 green** — DrivePathsTest is 7 (a new test pins the mime
+  type each kind needs and which kinds are readable inside the app); StructureLayoutTest 26, NodeCatalogTest
+  9, FragmentBuilderTest 6. `:app:assembleDebug` **BUILD SUCCESSFUL with 0 Kotlin warnings** (two more
+  deprecated icons moved to AutoMirrored; `ChoiceChip` is the project's own component, not material3's).
+- Not verified: the device. Look at: do the row menu and the Move dialog feel right; does search find a file
+  two folders down; does "Open with…" actually open a PDF here; and — the important one — is anything still
+  drawn under the home indicator.
+- Still open: folders cannot be copied (files can); no multi-select inside the Drive; no trash browser (the
+  trash is on disk but not shown); the branch arrange direction is still a command and not stored data.

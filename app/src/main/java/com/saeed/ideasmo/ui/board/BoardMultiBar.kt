@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -60,7 +61,8 @@ internal fun BoardMultiBar(
     onClear: () -> Unit,
 ) {
     Surface(
-        modifier = modifier.fillMaxWidth(),
+        // A custom bar at the bottom of the screen carries the system-bar inset itself.
+        modifier = modifier.fillMaxWidth().navigationBarsPadding(),
         color = MaterialTheme.colorScheme.secondaryContainer,
     ) {
         Row(

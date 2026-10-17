@@ -82,4 +82,19 @@ class DrivePathsTest {
         val file = DriveEntry("a.txt", "a.txt", false, 2048L, 0L, DriveKind.Text)
         assertTrue(file.detail.startsWith("2 KB"))
     }
+
+    @Test
+    fun everyKindGetsTheMimeTypeAnotherAppNeeds() {
+        // v0.14.0: the Drive hands a file to whatever app can read it, so the mime type has to be right.
+        assertEquals("image/*", DriveOpen.mimeOf("photo.jpg"))
+        assertEquals("text/plain", DriveOpen.mimeOf("notes.md"))
+        assertEquals("application/pdf", DriveOpen.mimeOf("paper.pdf"))
+        assertEquals("audio/*", DriveOpen.mimeOf("voice.m4a"))
+        assertEquals("video/*", DriveOpen.mimeOf("clip.mp4"))
+        assertTrue(DriveOpen.mimeOf("mystery.bin").isNotEmpty())
+        // Images and text are readable inside the app, so they do not need another app at all.
+        assertTrue(DriveOpen.readableInside("shot.png"))
+        assertTrue(DriveOpen.readableInside("readme.txt"))
+        assertTrue(!DriveOpen.readableInside("paper.pdf"))
+    }
 }

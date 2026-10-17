@@ -15,6 +15,17 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- Hands a file from the Drive to another app as a content:// URI (v0.14.0), so a PDF or a
+             document can be opened by whatever app actually knows how to read it. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="com.saeed.ideasmo.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/provider_paths" />
+        </provider>
     </application>
 
 </manifest>

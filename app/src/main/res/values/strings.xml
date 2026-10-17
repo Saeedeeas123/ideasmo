@@ -408,4 +408,25 @@
     <string name="att_from_drive_files">Pick a file from the Drive</string>
     <string name="att_from_drive_added">Attached from the Drive</string>
     <string name="back">Back</string>
+    <!-- v0.14.0 · the Drive's basic operations -->
+    <string name="drive_search">Search the Drive</string>
+    <string name="drive_sort_name">Name</string>
+    <string name="drive_sort_size">Size</string>
+    <string name="drive_sort_new">Newest</string>
+    <string name="drive_operations">Operations</string>
+    <string name="drive_rename">Rename</string>
+    <string name="drive_rename_title">Rename</string>
+    <string name="drive_move">Move</string>
+    <string name="drive_move_title">Move %1$s to…</string>
+    <string name="drive_moved">Moved</string>
+    <string name="drive_move_failed">Could not move that</string>
+    <string name="drive_copy">Make a copy</string>
+    <string name="drive_copied">Copied as %1$s</string>
+    <string name="drive_copy_failed">Could not copy that</string>
+    <string name="drive_open_with">Open with…</string>
+    <string name="drive_no_app">No app on the phone can open that file</string>
+    <string name="drive_no_results">Nothing matches</string>
+    <string name="drive_no_results_detail">Try a shorter word, or clear the search to see the folder again.</string>
+    <string name="note_to_drive">To Drive</string>
+    <string name="note_to_drive_done">Saved as %1$s in the Drive</string>
 </resources>

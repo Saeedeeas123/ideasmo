@@ -9,6 +9,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -201,8 +202,12 @@ private fun IdeasmoApp() {
             )
                 }
             }
-            notice?.let { text ->
-                NoticeBar(text = text, onDismiss = { notice = null })
+            // The strip is the LAST thing in the layout and it is a custom surface, so it has to carry
+            // the system-bar inset itself — otherwise it hides under the home indicator (Saeed's report).
+            Box(modifier = Modifier.navigationBarsPadding()) {
+                notice?.let { text ->
+                    NoticeBar(text = text, onDismiss = { notice = null })
+                }
             }
         }
     }

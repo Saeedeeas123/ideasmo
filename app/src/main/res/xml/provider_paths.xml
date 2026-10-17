@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- The whole Drive can be handed to other apps as a content:// URI, so any file the app stores
+         can be opened by whatever app knows how to read it (v0.14.0). -->
+    <files-path name="drive" path="drive/" />
+    <files-path name="legacy_pics" path="pics/" />
+    <files-path name="legacy_files" path="files/" />
+</paths>
