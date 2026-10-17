@@ -329,7 +329,9 @@ fun BoardScreen(
 
     val pattern = BoardPattern.fromKey(BoardPrefs.patternKey)
     val palette = BoardPalette.fromKey(BoardPrefs.paletteKey)
-    val direction = LayoutDirection.fromKey(BoardPrefs.directionKey)
+    // The board-wide direction is only a fallback now: the arrangement lives on each node (v0.15.0),
+    // and a tree whose central node has not been given one is laid out to the right.
+    val direction = LayoutDirection.Right
     val spacing = LayoutSpacing.fromKey(BoardPrefs.spacingKey)
     val showLabels = BoardPrefs.showLinkLabels
     val showMinimapPref = BoardPrefs.showMinimap
@@ -719,7 +721,30 @@ fun BoardScreen(
             }
         }
     }
-
+    /**
+     * The node menu's Arrange (v0.15.0) — the one place the arrangement is chosen now.
+     *
+     * It does two things at once, on purpose: it **stores** the choice on the node (which is what
+     * makes the node sheet, the whole-map Arrange and the drag behaviour all agree) and, when a
+     * direction was picked, it lays the branch out immediately so the result is seen, not imagined.
+     * Free stores "no arrangement" and moves nothing: Free means the position is the user's.
+     */
+    val setNodeArrange: (String, String?) -> Unit = { nodeId, key ->
+        val node = NodeStore.byId(nodeId)
+        if (node == null) {
+            notice = context.getString(R.string.arrange_nothing)
+        } else {
+            NodeStore.setArrange(context, nodeId, key)
+            tool = NodeTool.None
+            if (key == null) {
+                notice = context.getString(R.string.arrange_free_done, node.name)
+            } else {
+                // The same branch arrange as before, so the layout (and its Undo) is identical
+                // whichever door the user came through.
+                arrangeBranch(nodeId, LayoutDirection.fromKey(key))
+            }
+        }
+    }
     // ---- the node action square -------------------------------------------
 fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, withSubLinks: Boolean) {
         val fragment = if (ids.size > 1) {
@@ -858,6 +883,9 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
             NodeActionCatalog.RESIZE -> tool = NodeTool.Resize
             NodeActionCatalog.COLOR -> tool = NodeTool.Colour
             NodeActionCatalog.SHAPE -> tool = NodeTool.Shape
+            // v0.15.0: Arrange opens the direction chooser INSIDE the node menu — no trip to the
+            // board's settings, which is exactly what Saeed asked for.
+            NodeActionCatalog.ARRANGE -> tool = NodeTool.Arrange
 
             else -> AppLog.w("Node", "no handler for action " + key)
         }
@@ -1454,6 +1482,7 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                         NodeStore.updateNode(context, barsNode.copy(shape = key))
                         AppLog.i("Style", "shape -> " + key)
                     },
+                    onArrange = { key -> setNodeArrange(barsNode.id, key) },
                     onResizeDone = { tool = NodeTool.None },
                 )
                 if (tool == NodeTool.Resize) {
@@ -1534,7 +1563,7 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                             }
                         },
                         onNudge = { dx, dy -> NodeStore.moveSubtree(context, node.id, dx, dy) },
-                        onArrangeBranch = { dir -> arrangeBranch(node.id, dir) },
+                        onArrange = { key -> setNodeArrange(node.id, key) },
                         onDetails = { detailsFor = node.id },
                         onDelete = {
                             removeIdsWithUndo(
@@ -1580,6 +1609,22 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                             }
                         },
                         onOpenOther = { other -> panel = Panel.LinkInfo(other.id) },
+                        // Following a relation to one of its ends: close the panel, select that node
+                        // and bring it to the middle of the board — the same "show me" behaviour as
+                        // opening a node from the sheet.
+                        onOpenNode = { nodeId ->
+                            val target = NodeStore.byId(nodeId)
+                            panel = null
+                            selectedLinkId = null
+                            if (target != null) {
+                                selection = listOf(target.id)
+                                board.centreOnWorld(
+                                    target.x + StructureLayout.widthOf(target) / 2f,
+                                    target.y + StructureLayout.heightOf(target) / 2f,
+                                )
+                                AppLog.i("Board", "jumped to '" + target.name + "' from a link")
+                            }
+                        },
                         onDelete = {
                             val removed = NodeStore.removeLink(context, link)
                             panel = null
@@ -1607,15 +1652,14 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                 Panel.Settings -> ProjectSettingsPanel(
                     pattern = pattern,
                     palette = palette,
-                    direction = direction,
                     spacing = spacing,
                     showLabels = showLabels,
                     showMinimap = showMinimapPref,
                     rootCount = NodeStore.rootIds(kind).size,
                     hiddenCount = hidden.size,
+                    arrangedCount = nodes.count { it.arrange != null },
                     onPattern = { BoardPrefs.setPattern(context, it.key) },
                     onPalette = { BoardPrefs.setPalette(context, it.key) },
-                    onDirection = { BoardPrefs.setDirection(context, it.key) },
                     onSpacing = { BoardPrefs.setSpacing(context, it.key) },
                     onShowLabels = { BoardPrefs.setShowLinkLabels(context, it) },
                     onShowMinimap = { BoardPrefs.setShowMinimap(context, it) },
@@ -2108,13 +2152,21 @@ private fun BoardNode(
                     // land in board units, otherwise the node runs away from the finger.
                     // View mode does not move anything (Saeed's v0.12.0 rule).
                     if (!editable) return@detectDragGestures
-                    moveIds.forEach { id ->
-                        val current = NodeStore.byId(id) ?: return@forEach
-                        NodeStore.move(
-                            id,
-                            current.x + dragAmount.x / (board.scale * board.density),
-                            current.y + dragAmount.y / (board.scale * board.density),
-                        )
+                    val dx = dragAmount.x / (board.scale * board.density)
+                    val dy = dragAmount.y / (board.scale * board.density)
+                    // A node that carries an arrangement moves TOGETHER WITH ITS BRANCH (v0.15.0):
+                    // Saeed's rule is "if the arrange is Up it stays Up", so dragging the arranged
+                    // node must not leave its children behind and quietly break the arrangement it
+                    // was given. A Free node — and a multi-selection, where moving a set on purpose
+                    // is the whole point — moves exactly as before.
+                    val arranged = moveIds.size == 1 && NodeStore.byId(moveIds.first())?.arrange != null
+                    if (arranged) {
+                        NodeStore.moveSubtreeLive(moveIds.first(), dx, dy)
+                    } else {
+                        moveIds.forEach { id ->
+                            val current = NodeStore.byId(id) ?: return@forEach
+                            NodeStore.move(id, current.x + dx, current.y + dy)
+                        }
                     }
                 }
             },
@@ -2165,10 +2217,34 @@ internal fun NodeCardBody(
             text = node.name,
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 2,
+            // ONE line, and that is the whole text on a card (Saeed's v0.15.0 order: the card shows
+            // the node's name and its counts, never its content — the notes, pictures and files are
+            // read by tapping the node and opening the list it holds). A name that needs more than a
+            // line is still readable in full in the node sheet, in its header.
+            maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
+        // Priority sits BESIDE the name (Saeed: "bring the priority up, put it next to Name"): it is
+        // part of what the node IS, not one more badge among its counts.
+        Spacer(Modifier.width(Spacing.xs))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            (1..5).forEach { level ->
+                Box(
+                    modifier = Modifier
+                        .padding(end = 2.dp)
+                        .size(7.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (level <= node.priority) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                            },
+                        ),
+                )
+            }
+        }
     }
     Spacer(Modifier.height(Spacing.s))
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -2200,22 +2276,6 @@ internal fun NodeCardBody(
             }
             Spacer(Modifier.width(Spacing.xs))
         }
-        (1..5).forEach { level ->
-            Box(
-                modifier = Modifier
-                    .padding(end = Spacing.xs)
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(
-                        if (level <= node.priority) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.outline
-                        },
-                    ),
-            )
-        }
-        Spacer(Modifier.width(Spacing.xs))
         // What the node carries — counts with a small icon, never the content itself. A node may hold
         // any number of notes, images, files and links (Saeed's v0.12.0 order).
         if (linkCount > 0) {

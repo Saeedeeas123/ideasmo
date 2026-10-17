@@ -3,7 +3,7 @@
 An idea processor for Android: capture an idea, give it structure, keep it in one place.
 Personal project of Saeed (`com.saeed.ideasmo`), built entirely on-device.
 
-**Current version: v0.14.0** (versionCode 14)
+**Current version: v0.15.0** (versionCode 15)
 
 ## What it is
 
@@ -88,6 +88,7 @@ DESIGN.md                    the design contract (tokens, screens, decisions, ho
 | v0.13.0 | **The Drive** — one private file store for the whole app (`filesDir/drive`) with a light file manager: tappable breadcrumb, folders, import any file, new folder, delete (moved to `.trash`, nothing destroyed), and a viewer that opens images and text. **It is the same storage the nodes use**: a file picked for a node is copied into the Drive under `Attachments/<node>/`, and a node's Image/Files dialogs can attach a file that is already in the Drive. The pre-Drive `pics`/`files` folders are migrated in on first run and every stored attachment path is rewritten, so nothing is lost. |
 
 | v0.14.0 | **The Drive's basic operations**: rename, move (into any folder), make a copy, delete, **search** (recursive, by name) and **sort** (name / size / newest) — plus **open with…**: any file is handed to the app that knows how to read it through a FileProvider, so PDFs, documents, audio and video finally open. A **note can be saved into the Drive** as a text file. And the **insets bug is fixed for good**: every custom surface at the bottom of the screen (the Drive's action bar, the app's notice strip, the group bar) now carries the system-bar inset itself, so nothing hides under the home indicator again. |
+| v0.15.0 | **The Drive is file-first, the arrangement belongs to the node, and the links are sorted out.** The Drive's top row is now a set of **shelves** — All files · Images · Texts · Documents · Audio · Video · Archives · Other · Folders — each with a live count, and picking one lists **every file of that kind wherever it sits** (a picture attached to a node included). **Import follows the shelf**: add a file while Images is open and it is filed in `Images/`; from All or Folders the file's own kind decides, so it always lands in the right place. **Priority moved up beside the Name** on the card, the card's name is one line (a title, never a body of text — content is read by opening the node), and **Arrange moved out of the project settings into the node's own menu** as a direction chooser with a **Free** option: Free means you place it, a direction means the node carries its branch with it and the whole-map Arrange follows each tree's own direction. **Links**: search + family chips over the 42 relations (in the picker *and* in the inspector), a relation's own **note** (in the model since v0.12.0, never shown until now), jump-to-either-end buttons, a filter for a node with many relations, and two-line rows that read type-then-sentence. And the **bottom bars are back where they belong**: the v0.14.0 inset fix was reserving the navigation-bar inset even with nothing to show, which lifted every screen's bottom edge and padded the board's toolbar twice. |
 
 ## Honest limits (v0.14.0)
 

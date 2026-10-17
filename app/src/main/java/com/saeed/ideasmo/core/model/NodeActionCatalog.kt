@@ -62,9 +62,22 @@ object NodeActionCatalog {
     const val SHAPE = "node.shape"
 
     /**
+     * **Arrange** (v0.15.0) — how this node's branch is laid out, and whether it is arranged at all.
+     *
+     * Saeed's order: "the arrange part is in the board's general settings; bring it into the node's
+     * menu, so that by clicking on it, which way the arrange goes is set" — plus a **Free** option:
+     * "if it is on Free the user can move it freely, otherwise it must obey the arrangement that was
+     * set, so if the arrange is Up it stays Up".
+     */
+    const val ARRANGE = "node.arrange"
+
+    /**
      * Every node action, **in the order Saeed fixed for the box** (v0.12.0):
      * Name · Child · Sibling · Connect · Note · Image · Files · Shape · Colour · Resize ·
-     * Copy · Cut · Paste · Delete · Reattach · More.
+     * Copy · Cut · Paste · Delete · Reattach · Arrange · More.
+     *
+     * (Arrange joined the end of the branch group in v0.15.0: it is a branch operation, and putting
+     * it there leaves every position above unchanged and keeps More as the last door.)
      *
      * `Duplicate` is deliberately NOT in the box (his list does not include it) but it stays in the
      * catalogue, so it still exists — the node sheet offers it. Keys are stable ids: `node.text` is
@@ -157,6 +170,16 @@ object NodeActionCatalog {
                 "parent. Replaces this node's incoming links and refuses a parent that sits inside " +
                 "its own subtree, so a branch can never be folded into itself.",
             needsTargetNode = true, mutatesStructure = true,
+        ),
+        NodeAction(
+            ARRANGE, "Arrange", NodeActionGroup.Branch,
+            "How this node's branch is laid out: Right, Left, Up, Down or Radial — or Free, which " +
+                "hands the position back to you. Choosing a direction lays the branch out at once AND " +
+                "keeps the choice on the node: the whole-map Arrange follows it, and dragging the node " +
+                "moves it together with its branch so the arrangement is not broken. Free is the " +
+                "default. Parameter: a LayoutDirection key (right / left / up / down / radial) or null " +
+                "for Free. Writes IdeaNode.arrange.",
+            mutatesStructure = true,
         ),
         NodeAction(
             MORE, "More", NodeActionGroup.Content,

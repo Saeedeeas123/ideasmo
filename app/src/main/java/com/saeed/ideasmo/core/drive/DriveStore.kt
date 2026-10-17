@@ -113,31 +113,118 @@ object DriveStore {
     }
 
     /**
-     * Copies [uri] into the Drive under [intoRelative] and returns its absolute path.
+     * Copies [uri] into the Drive and returns its absolute path.
      *
      * This is the one door from the outside world into the app: images, documents, anything. The
      * display name is kept when the picker offers one, so the Drive reads like the user's own files.
+     *
+     * **Where it lands (v0.15.0, file-first):** when [intoRelative] is null the file is filed on its
+     * own shelf — a picture to `Images/`, a document to `Documents/`, and so on — so the user only has
+     * to say *what* they are importing, never *where* it should go. A caller that has its own place
+     * (a node's attachments) still passes the folder, and keeps working exactly as before.
      */
-    fun importUri(context: Context, uri: Uri, intoRelative: String = "", displayName: String? = null): String? {
-        val dir = resolve(intoRelative) ?: return null
+    fun importUri(
+        context: Context,
+        uri: Uri,
+        intoRelative: String? = "",
+        displayName: String? = null,
+    ): String? {
+        val offered = displayName ?: queryName(context, uri) ?: "file"
+        val target = intoRelative ?: shelfFolder(DrivePaths.shelfOfName(offered))
+        val dir = resolve(target) ?: return null
         if (!dir.isDirectory && !dir.mkdirs()) {
             AppLog.w("Drive", "cannot create the target folder: " + dir.absolutePath)
             return null
         }
-        val offered = displayName ?: queryName(context, uri) ?: "file"
         val name = uniqueName(dir, sanitize(offered))
-        val target = File(dir, name)
+        val file = File(dir, name)
         return try {
             context.contentResolver.openInputStream(uri)?.use { input ->
-                target.outputStream().use { output -> input.copyTo(output) }
+                file.outputStream().use { output -> input.copyTo(output) }
             }
-            AppLog.i("Drive", "imported " + target.name + " (" + target.length() + " bytes) into /" + intoRelative)
-            target.absolutePath
+            AppLog.i(
+                "Drive",
+                "imported " + file.name + " (" + file.length() + " bytes) into /" + target,
+            )
+            file.absolutePath
         } catch (t: Throwable) {
             AppLog.e("Drive", "import failed for " + offered, t)
-            target.delete()
+            file.delete()
             null
         }
+    }
+
+    /** The Drive folder a shelf lives in, created on demand — "Images", "Documents", … */
+    fun shelfFolder(shelf: DrivePaths.DriveShelf): String {
+        val folder = shelf.folder
+        resolve(folder)?.let { if (!it.exists()) it.mkdirs() }
+        return folder
+    }
+
+    /**
+     * **The whole Drive read file-first:** every file on [shelf], wherever it sits, as a flat list.
+     *
+     * Folders are deliberately absent here — this view answers "show me my pictures", not "show me my
+     * folders" — and each row's `relative` still carries the folder it lives in, so the list can say
+     * where a file came from without the user having to walk there.
+     */
+    fun listShelf(shelf: DrivePaths.DriveShelf, sort: Sort = Sort.Name): List<DriveEntry> {
+        val base = root ?: return emptyList()
+        val entries = DrivePaths.filesOnShelf(base, shelf, setOf(TRASH)).mapNotNull { file ->
+            val rel = relativeOf(file.absolutePath) ?: return@mapNotNull null
+            DriveEntry(
+                name = file.name,
+                relative = rel,
+                isFolder = false,
+                sizeBytes = file.length(),
+                modifiedAt = file.lastModified(),
+                kind = kindOf(file.name),
+            )
+        }
+        val comparator: Comparator<DriveEntry> = when (sort) {
+            Sort.Name -> compareBy { it.name.lowercase() }
+            Sort.Size -> compareByDescending { it.sizeBytes }
+            Sort.Newest -> compareByDescending { it.modifiedAt }
+        }
+        return entries.sortedWith(comparator)
+    }
+
+    /** How many files sit on each shelf — what the shelf chips show. */
+    fun countsByShelf(): Map<DrivePaths.DriveShelf, Int> {
+        val base = root ?: return emptyMap()
+        val counts = HashMap<DrivePaths.DriveShelf, Int>()
+        base.walkTopDown().forEach { file ->
+            if (!file.isFile) return@forEach
+            if (file.parentFile?.name == TRASH) return@forEach
+            val shelf = DrivePaths.shelfOfName(file.name)
+            counts[shelf] = (counts[shelf] ?: 0) + 1
+        }
+        return counts
+    }
+
+    /** Every file in the Drive, flat and ignoring folders — the "All files" view. */
+    fun listAllFiles(sort: Sort = Sort.Name): List<DriveEntry> {
+        val base = root ?: return emptyList()
+        val entries = base.walkTopDown()
+            .filter { it.isFile && it.parentFile?.name != TRASH }
+            .mapNotNull { file ->
+                val rel = relativeOf(file.absolutePath) ?: return@mapNotNull null
+                DriveEntry(
+                    name = file.name,
+                    relative = rel,
+                    isFolder = false,
+                    sizeBytes = file.length(),
+                    modifiedAt = file.lastModified(),
+                    kind = kindOf(file.name),
+                )
+            }
+            .toList()
+        val comparator: Comparator<DriveEntry> = when (sort) {
+            Sort.Name -> compareBy { it.name.lowercase() }
+            Sort.Size -> compareByDescending { it.sizeBytes }
+            Sort.Newest -> compareByDescending { it.modifiedAt }
+        }
+        return entries.sortedWith(comparator)
     }
 
     /** Writes text straight into the Drive (used when a note is exported as a file). */

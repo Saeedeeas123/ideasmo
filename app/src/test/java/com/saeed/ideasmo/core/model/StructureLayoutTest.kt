@@ -660,4 +660,69 @@ class StructureLayoutTest {
         }
         assertFalse("and it does not overlap the map", overlapsAnything)
     }
+
+    @Test
+    fun eachCentralNodeArrangesItsOwnTreeInItsOwnDirection() {
+        // v0.15.0 — the arrangement lives on the NODE. "If the arrange is Up, it stays Up": a board
+        // can hold an Up tree and a Right tree at the same time, without a board-wide setting deciding
+        // for both. This is the engine half of that promise.
+        val up = node("up", isRoot = true).copy(arrange = LayoutDirection.Up.key)
+        val upKid = node("upKid")
+        val right = node("right", isRoot = true).copy(arrange = LayoutDirection.Right.key)
+        val rightKid = node("rightKid")
+        val nodes = listOf(up, upKid, right, rightKid)
+        val links = listOf(link("l1", "up", "upKid"), link("l2", "right", "rightKid"))
+
+        val positions = StructureLayout.arrange(
+            nodes = nodes,
+            links = links,
+            preferredRoots = listOf("up", "right"),
+            // The fallback direction is deliberately NOT what either tree uses.
+            direction = LayoutDirection.Down,
+            spacing = LayoutSpacing.Normal,
+        )
+
+        val upRoot = positions.getValue("up")
+        val upChild = positions.getValue("upKid")
+        val rightRoot = positions.getValue("right")
+        val rightChild = positions.getValue("rightKid")
+
+        // An Up tree: the child sits ABOVE its parent, on the parent's own axis.
+        assertTrue("the Up child is above its parent", upChild.y < upRoot.y)
+        assertEquals("and shares its column", upRoot.x, upChild.x, 0.001f)
+
+        // A Right tree: the child sits to the RIGHT and on the same row.
+        assertTrue("the Right child is to the right of its parent", rightChild.x > rightRoot.x)
+        assertEquals("and shares its row", rightRoot.y, rightChild.y, 0.001f)
+
+        // And the two trees do not overlap, because each group starts clear of the one before it.
+        assertTrue("the Right tree is clear of the Up tree", rightRoot.y > upRoot.y)
+    }
+
+    @Test
+    fun aFreeNodeFollowsTheBoardDirection() {
+        // Free is the absence of an arrangement, so such a tree uses the direction it is given.
+        val free = node("free", isRoot = true)
+        val kid = node("kid")
+        val positions = StructureLayout.arrange(
+            nodes = listOf(free, kid),
+            links = listOf(link("l1", "free", "kid")),
+            preferredRoots = listOf("free"),
+            direction = LayoutDirection.Left,
+            spacing = LayoutSpacing.Normal,
+        )
+        val root = positions.getValue("free")
+        val child = positions.getValue("kid")
+        assertTrue("a Free tree grows left when the board says left", child.x < root.x)
+    }
+
+    @Test
+    fun theArrangementKeyRoundTripsAndFreeIsTheDefault() {
+        val plain = node("plain")
+        assertEquals("a node with no arrangement is Free", null, plain.arrange)
+        assertEquals(null, plain.arrangeDirection)
+        assertEquals(LayoutDirection.Radial.key, plain.copy(arrange = "radial").arrangeDirection?.key)
+        // An unknown key from an older or newer build is Free, not a crash.
+        assertEquals(null, plain.copy(arrange = "sideways").arrangeDirection)
+    }
 }

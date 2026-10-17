@@ -691,3 +691,99 @@ no dependency where a Compose `Canvas` would do.
   drawn under the home indicator.
 - Still open: folders cannot be copied (files can); no multi-select inside the Drive; no trash browser (the
   trash is on disk but not shown); the branch arrange direction is still a command and not stored data.
+
+## v0.15.0 — file-first Drive, the arrangement on the node, the links sorted out, and the real inset bug
+
+Saeed's round was six things in one message: the Drive's categorisation, the gap above the home/back
+buttons, the priority on the node card, the text still shown on the card, the arrangement living in the
+board's settings, and the links never having had any attention. All six are one release because they are
+one experience: the Drive, the card and the relations are what the board is made of.
+
+1. **THE DRIVE IS FILE-FIRST.** Saeed: *"whatever type of file is chosen at the top, every existing file
+   of that type must be listed — and the same is true for importing: to import an image we go into Images
+   and import it there; you tidy the file manager yourself and it ends up in the right place."*
+   `DrivePaths.DriveShelf` is the new idea: a **shelf** is what the user thinks in (Images, Texts,
+   Documents, Audio, Video, Archives, Other), where a **folder** is only where a file happens to sit. A
+   PDF and a Word file share the Documents shelf, which is why the shelf is not simply the kind.
+   `DrivePaths.filesOnShelf(root, shelf, skip)` walks the whole Drive and returns every file of that
+   shelf — so a picture attached to a node (under `Attachments/<node>/`) and a picture imported straight
+   into the Drive are both simply pictures. The Drive screen's first row is the shelf bar with live counts
+   (`DriveStore.countsByShelf()`), plus **All files** (every file, flat) and **Folders** (the tree, for
+   when a folder is what you are after, and the only view with a breadcrumb). **Import follows the shelf**:
+   `DriveStore.importUri(context, uri, intoRelative = null)` files the file on its own shelf, the shelf
+   view passes its own folder, and the button says which — "Add to Images". A flat row shows where its
+   file actually lives, because a file-first list does not follow folders. The node's From-Drive picker is
+   file-first too when a kind is being asked for.
+
+2. **THE INSET BUG, FOR REAL THIS TIME.** Saeed: *"the thing about going behind the home and back
+   buttons — it is higher than it should be now; before it went behind, now the gap is very large."* This
+   was not an insets problem, it was a **padding-on-nothing** problem, and the v0.14.0 fix caused it:
+   `Box(Modifier.navigationBarsPadding()) { notice?.let { ... } }` keeps that Box in the layout at all
+   times, so the navigation-bar inset was reserved permanently. Two visible consequences, both exactly
+   what he described: (1) the screen above it (`weight(1f)`) lost the inset's height even with nothing to
+   say, so every screen's bottom edge floated up; (2) a screen that already carries the inset on its own
+   bottom bar — the board's toolbar through its Scaffold, the Drive's custom bottom bar — was padded a
+   **second** time. The fix is one line of structure: `notice?.let { Box(Modifier.navigationBarsPadding()) { ... } }`.
+   The rule is now stated in the code with the reason: a custom surface at the bottom of the screen carries
+   the inset itself **and only while it exists**.
+
+3. **PRIORITY BESIDE THE NAME, AND THE CARD SHOWS NO CONTENT.** The five priority dots moved from the
+   counts row up to the name row (Saeed: *"bring the priority up, put it next to Name"*), and the name is
+   now **one line** — the card is a title plus its counts, never a body of text; what a node holds is read
+   by tapping it (the lists) and by More → Details (the machine-readable view). The leftovers that called
+   the name "text" were renamed (`node_text_title` = "Node name") and the name field now says what it is
+   for: *"The card shows this, and only this — the content belongs in Note."*
+
+4. **THE ARRANGEMENT BELONGS TO THE NODE — WITH FREE.** `IdeaNode.arrange` stores a `LayoutDirection`
+   key, or null for **Free**. Saeed: *"the arrange part is in the board's general settings; bring it into
+   the node's menu — and there must be a Free option, so that on Free the user can move it freely, and
+   otherwise it obeys the arrangement that was set, so if the arrange is Up it stays Up."*
+   - It is an action of the node: `NodeActionCatalog.ARRANGE`, rendered by the action box as a chip row
+     (Free · Right · Left · Up · Down · Radial) with the node's own choice selected. The node sheet shows
+     the same chips with the same selection, so the two can never disagree.
+   - Choosing a direction arranges the branch **and stores it** (`NodeStore.setArrange`); choosing Free
+     stores nothing and moves nothing, because Free means the position is the user's.
+   - **The stored direction is obeyed**: `StructureLayout.arrange` groups the central nodes by the
+     direction each one carries and stacks the groups clear of each other, so one board can hold an Up
+     tree and a Right tree at once; and dragging a node that carries an arrangement moves it **with its
+     branch** (`NodeStore.moveSubtreeLive`, memory-only, persisted on release), so the arrangement cannot
+     be broken by accident. Free nodes and multi-selections move exactly as before.
+   - The project settings lost the direction row and gained a line saying where the choice lives and how
+     many nodes on this board carry one. `BoardPrefs` no longer stores a board-wide direction at all.
+
+5. **THE LINKS, SORTED OUT.** Saeed: *"the links have not had much attention — keep what they do, but
+   tidy it up so that choosing, grouping, looking at them and editing them is easier."*
+   - `LinkCatalog.browse(query, family)` + `countByFamily()` filter the 42 relations by family and by any
+     word the user might remember (name, key, phrase, example, meaning, family title).
+   - `ui/board/LinkBrowser.kt` is the **shared chooser** — search field, family chips with counts, and a
+     `LazyListScope.linkResults` extension — used by **both** the picker and the inspector, so the two
+     screens behave identically and cannot drift.
+   - The inspector is reorganised around what you can do to a relation: what it reads as → its two ends
+     (with a button to jump to either node on the board) → other relations between the same pair → colour
+     → phrase → **note** → and the catalog to change the type into, last, because it is the long one.
+   - **The relation note is finally reachable.** `NodeLink.note` has been in the model and in the saved
+     file since relations got an identity, and nothing ever showed it; it now has an editor.
+   - A node's own relations are easier to read: two lines per row (the type's name, then the sentence),
+     the note underneath when there is one, and a filter field once a node has more than six relations.
+
+**Verified:** `:app:testDebugUnitTest` **59/59 green** — DrivePathsTest 9 (two new: the shelf of a file is
+its kind and not its folder, and a shelf finds its files wherever they sit and never in the trash),
+StructureLayoutTest 29 (three new: two central nodes arrange in their own directions at once, a Free tree
+follows the board direction, and the arrangement key round-trips while an unknown key is Free),
+NodeCatalogTest 10 (the new one puts Arrange in the box and pins its description), LinkCatalogTest 5 (new:
+finding a relation by whatever the user remembers, family filtering, honest empty results, chip counts),
+FragmentBuilderTest 6. `:app:assembleDebug` **BUILD SUCCESSFUL with 0 Kotlin warnings**. aapt2 badging:
+versionCode 15 / versionName 0.15.0. The shipped APK was checked for the new code by concatenating every
+`classes*.dex` and grepping the blob for `node.arrange`, and by grepping `resources.arsc` for the new
+strings ("All files", "Nothing on this shelf yet", "Arrange this branch", "Find one of these relations",
+"%1$s filed in %2$s", "Node name") — all present.
+
+**Not verified:** the device, as always. Worth looking at: does the shelf bar read as an index; does an
+import from Images really land in `Images/`; is the board's bottom toolbar now sitting just above the home
+indicator (the point of fix 2); does the node's Arrange chip row make sense at a glance; does dragging an
+arranged node carry its branch.
+
+**Still open:** no trash browser; no multi-select in the Drive; folders cannot be copied; the Drive's
+open-with path is unverified on the device; and a *Free* branch that is laid out by the whole-map Arrange
+is still laid out to the right — there is no per-node "don't touch this at all" beyond leaving the whole
+board alone.

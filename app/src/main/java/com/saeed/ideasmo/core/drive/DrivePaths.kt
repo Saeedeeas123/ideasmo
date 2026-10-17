@@ -29,6 +29,70 @@ object DrivePaths {
         }
     }
 
+    /**
+     * The Drive is read **file-first** (Saeed's order, v0.15.0): the top of the screen is a set of
+     * shelves, one per kind of thing, and choosing a shelf shows every file of that kind wherever it
+     * sits — "to import a picture you go to Images and import it there".
+     *
+     * A shelf is what the user thinks in ("my pictures"), a folder is only where a file happens to
+     * sit (an attachment of a node, or an imported file). Several kinds can share a shelf (a PDF and
+     * a Word file are both Documents), which is why this is not simply [DriveKind].
+     */
+    enum class DriveShelf(val key: String, val folder: String, val label: String) {
+        Image("image", "Images", "Images"),
+        Text("text", "Texts", "Texts"),
+        Document("document", "Documents", "Documents"),
+        Audio("audio", "Audio", "Audio"),
+        Video("video", "Video", "Video"),
+        Archive("archive", "Archives", "Archives"),
+        Other("other", "Other", "Other"),
+        ;
+
+        companion object {
+            /** The shelves in the order the Drive shows them. */
+            val order: List<DriveShelf> = listOf(Image, Text, Document, Audio, Video, Archive, Other)
+
+            fun fromKey(key: String?): DriveShelf? = order.firstOrNull { it.key == key }
+        }
+    }
+
+    /** Which shelf a kind of file belongs on. */
+    fun shelfOf(kind: DriveKind): DriveShelf = when (kind) {
+        DriveKind.Image -> DriveShelf.Image
+        DriveKind.Text -> DriveShelf.Text
+        DriveKind.Pdf, DriveKind.Document -> DriveShelf.Document
+        DriveKind.Audio -> DriveShelf.Audio
+        DriveKind.Video -> DriveShelf.Video
+        DriveKind.Archive -> DriveShelf.Archive
+        DriveKind.Folder, DriveKind.Other -> DriveShelf.Other
+    }
+
+    /** Which shelf a file belongs on, decided by its name alone. */
+    fun shelfOfName(name: String): DriveShelf = shelfOf(kindOf(name))
+
+    /** The Drive folder a file of this kind is filed into when it is imported file-first. */
+    fun folderFor(kind: DriveKind): String = shelfOf(kind).folder
+
+    /**
+     * Every FILE under [root] that belongs on [shelf], deepest folders included.
+     *
+     * This is what makes the Drive file-first rather than folder-first: a picture attached to a node
+     * (filed under `Attachments/<node>/`) and a picture imported straight to the Drive (`Images/`)
+     * are both pictures, and both show up under Images. [skipNames] is the folder the Drive keeps for
+     * deleted files, so the trash never leaks into a shelf.
+     */
+    fun filesOnShelf(root: File, shelf: DriveShelf, skipNames: Set<String> = emptySet()): List<File> {
+        if (!root.isDirectory) return emptyList()
+        val found = ArrayList<File>()
+        root.walkTopDown().forEach { file ->
+            if (!file.isFile) return@forEach
+            if (file.name in skipNames) return@forEach
+            if (file.parentFile?.name in skipNames) return@forEach
+            if (shelfOfName(file.name) == shelf) found.add(file)
+        }
+        return found.sortedBy { it.name.lowercase() }
+    }
+
     /** A name that is safe on every file system in the app's own storage. */
     fun sanitize(name: String): String = name
         .replace('/', '_')

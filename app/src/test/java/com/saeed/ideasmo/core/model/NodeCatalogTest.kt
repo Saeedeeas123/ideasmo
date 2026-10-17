@@ -45,6 +45,9 @@ class NodeCatalogTest {
         // v0.12.0: the four bars became ONE box, and Saeed fixed its exact order:
         // Name · Child · Sibling · Connect · Note · Image · Files · Shape · Colour · Resize ·
         // Copy · Cut · Paste · Delete · Reattach · More.
+        //
+        // v0.15.0: Arrange joined it, at the END so that the order he fixed above is untouched —
+        // he moved the arrangement out of the board's settings and into this menu.
         val expected = listOf(
             NodeActionCatalog.TEXT,
             NodeActionCatalog.CHILD,
@@ -61,9 +64,10 @@ class NodeCatalogTest {
             NodeActionCatalog.PASTE,
             NodeActionCatalog.DELETE,
             NodeActionCatalog.REATTACH,
+            NodeActionCatalog.ARRANGE,
             NodeActionCatalog.MORE,
         )
-        assertEquals("the box holds exactly these sixteen, in this order", expected, NodeActionCatalog.box.map { it.key })
+        assertEquals("the box holds exactly these seventeen, in this order", expected, NodeActionCatalog.box.map { it.key })
         // Duplicate is still in the catalogue (the node sheet offers it) but NOT in the box.
         assertFalse(NodeActionCatalog.box.any { it.key == NodeActionCatalog.DUPLICATE })
         assertNotNull(NodeActionCatalog.byKey(NodeActionCatalog.DUPLICATE))
@@ -160,5 +164,22 @@ class NodeCatalogTest {
         // And a default node keeps the original card geometry.
         assertEquals(StructureLayout.NODE_W, StructureLayout.widthOf(node), 0.001f)
         assertEquals(StructureLayout.NODE_H, StructureLayout.heightOf(node), 0.001f)
+    }
+
+    @Test
+    fun arrangeIsAnActionOfTheNodeItself() {
+        // v0.15.0 — Saeed moved the arrangement out of the board's settings and into the node's own
+        // menu, with a Free option. The catalogue is what the action box is generated from, so the
+        // promise is checked here: the action exists, it is IN the box, and it is described well
+        // enough for the planned model layer to use it without being told twice.
+        val action = NodeActionCatalog.byKey(NodeActionCatalog.ARRANGE)
+        assertNotNull(action)
+        assertEquals(NodeActionGroup.Branch, action!!.group)
+        assertTrue("Arrange has a place in the node's box", action.inBox)
+        assertTrue("choosing a direction changes the structure", action.mutatesStructure)
+        assertTrue(NodeActionCatalog.box.any { it.key == NodeActionCatalog.ARRANGE })
+        // Its description names the parameter and the Free option, which is what a model layer reads.
+        assertTrue(action.description.contains("free", ignoreCase = true))
+        assertTrue(action.description.contains("right", ignoreCase = true))
     }
 }

@@ -54,6 +54,21 @@ data class IdeaNode(
      */
     val w: Float = 0f,
     val h: Float = 0f,
+    /**
+     * **How this node's branch is arranged** (v0.15.0), as a [LayoutDirection] key — or null, which
+     * means **Free**.
+     *
+     * Saeed's order: the arrangement belongs to the NODE (in its own menu, not in the board's
+     * settings), and it comes with a Free option — "if it is set to Free the user can move it freely;
+     * otherwise it must obey the arrangement that was set, so if the arrange is Up it stays Up".
+     *
+     * What that means in practice: setting a direction arranges the branch straight away and keeps
+     * the choice on the node, the whole-map Arrange lays every tree out in the direction of its own
+     * central node, and dragging a node that has a direction moves it **with** its branch, so the
+     * arrangement it was given is not silently broken. Free is the default, so nothing about an
+     * existing board changes until the user asks for a direction.
+     */
+    val arrange: String? = null,
     /** Last time anything about the node changed — useful for sync and for the model layer. */
     val updatedAt: Long = 0L,
 ) {
@@ -70,6 +85,12 @@ data class IdeaNode(
 
     /** The first picture — kept so older code that shows one thumbnail keeps working. */
     val picUri: String? get() = pictures.firstOrNull()
+
+    /**
+     * This node's arrangement as a direction, or null when it is **Free** — the state in which the
+     * user is the one who decides where the node and its branch sit.
+     */
+    val arrangeDirection: LayoutDirection? get() = LayoutDirection.fromKeyOrNull(arrange)
 
     /** Everything the node carries, for the machine-readable view and the model layer. */
     val attachmentCount: Int get() = notes.size + pictures.size + files.size
@@ -504,6 +525,26 @@ object NodeStore {
         items.filter { it.collapsed }.forEach { node -> hidden.addAll(subtreeOf(node.id)) }
         return hidden
     }
+    /**
+     * Stores how this node's branch is arranged, or clears it back to **Free** ([key] null).
+     *
+     * Saeed's order (v0.15.0): the arrangement is a property of the NODE, chosen in the node's own
+     * menu — not a board-wide setting — and it has a Free option beside the directions. Storing it
+     * (instead of only acting on it) is what makes the choice visible and repeatable: the node's menu
+     * shows which direction it is on, the whole-map Arrange honours it, and Free means the position is
+     * the user's own.
+     */
+    fun setArrange(context: Context, nodeId: String, key: String?) {
+        val index = items.indexOfFirst { it.id == nodeId }
+        if (index < 0) return
+        if (items[index].arrange == key) return
+        items[index] = items[index].copy(arrange = key)
+        persist(context)
+        AppLog.i(
+            "Structure",
+            "arrange of '" + items[index].name + "' set to " + (key ?: "free"),
+        )
+    }
 
     fun setRoot(context: Context, nodeId: String, isRoot: Boolean) {
         val index = items.indexOfFirst { it.id == nodeId }
@@ -684,6 +725,12 @@ object NodeStore {
                         collapsed = o.optBoolean("collapsed", false),
                         color = if (o.has("color") && !o.isNull("color")) o.optString("color") else null,
                         shape = if (o.has("shape")) o.optString("shape") else NodeStyle.SHAPE_ROUNDED,
+                        // v0.15.0: the node's own arrangement key; absent (or null) means Free.
+                        arrange = if (o.has("arrange") && !o.isNull("arrange")) {
+                            o.optString("arrange")
+                        } else {
+                            null
+                        },
                         // v0.8.0 stored a size multiplier; v0.9.0 stores real board units. Migrate.
                         w = if (o.has("w") && o.optDouble("w", 0.0) > 0.0) {
                             o.optDouble("w").toFloat()
@@ -776,6 +823,21 @@ object NodeStore {
         val index = items.indexOfFirst { it.id == id }
         if (index >= 0) {
             items[index] = items[index].copy(x = x, y = y)
+        }
+    }
+
+    /**
+     * Memory-only move of a node **and everything under it**, used while a finger drags an arranged
+     * node so its branch travels with it (v0.15.0). Like [move], it writes nothing to disk — the board
+     * calls [persist] once when the finger lifts, so a drag never hammers the file.
+     */
+    fun moveSubtreeLive(nodeId: String, dx: Float, dy: Float) {
+        val ids = listOf(nodeId) + subtreeOf(nodeId)
+        ids.forEach { id ->
+            val index = items.indexOfFirst { it.id == id }
+            if (index >= 0) {
+                items[index] = items[index].copy(x = items[index].x + dx, y = items[index].y + dy)
+            }
         }
     }
 
@@ -955,6 +1017,7 @@ object NodeStore {
                 o.put("shape", n.shape)
                 o.put("w", n.w.toDouble())
                 o.put("h", n.h.toDouble())
+                o.put("arrange", n.arrange ?: JSONObject.NULL)
                 o.put("updatedAt", n.updatedAt)
                 nodesArray.put(o)
             }

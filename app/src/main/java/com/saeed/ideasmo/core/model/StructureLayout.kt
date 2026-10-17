@@ -18,6 +18,24 @@ enum class LayoutDirection(val key: String, val label: String) {
     companion object {
         fun fromKey(key: String?): LayoutDirection =
             values().firstOrNull { it.key == key } ?: Right
+
+        /**
+         * The order the direction chips are shown in, everywhere.
+         *
+         * One list, so the node's action box and the node sheet present the directions identically —
+         * a chooser that reorders itself between two screens is a chooser the user has to re-read.
+         */
+        val chipOrder: List<LayoutDirection> = listOf(Right, Left, Up, Down, Radial)
+
+        /**
+         * The same lookup, but honest about **Free**: null when the key names no direction.
+         *
+         * A node's arrangement is a nullable direction — "Free" is the absence of one — so this is
+         * the lookup the node model uses, while [fromKey] keeps its "always answer something"
+         * behaviour for the board defaults.
+         */
+        fun fromKeyOrNull(key: String?): LayoutDirection? =
+            values().firstOrNull { it.key == key }
     }
 }
 
@@ -118,11 +136,51 @@ object StructureLayout {
         val children = childrenMap(nodes, links)
         val roots = resolveRoots(nodes, links, preferredRoots).filter { byId.containsKey(it) }
         if (roots.isEmpty()) return emptyMap()
-        val laidOut = if (direction == LayoutDirection.Radial) {
-            radial(byId, children, roots, spacing, originX, originY, measured)
-        } else {
-            linear(byId, children, roots, direction, spacing, originX, originY, measured)
-        }
+        val laidOut = LinkedHashMap<String, LayoutPoint>()
+        var crossCursor = 0f
+        // Every central node arranges its own tree in ITS OWN direction when it has one (v0.15.0:
+        // "if the arrange is Up it stays Up"), and in [direction] when it is Free. A board can
+        // therefore grow in several directions at once, and the board-wide direction is only the
+        // fallback for trees that have not been given one.
+        //
+        // Roots are grouped by the direction they actually use, so roots that share one are laid out
+        // together (and keep the classic tidy-tree spacing), and each group is stacked clear of the
+        // previous one along the cross axis. `groupBy` keeps the roots' own order, so the first
+        // central node stays the anchor.
+        roots.groupBy { rootId -> byId[rootId]?.arrangeDirection ?: direction }
+            .forEach { (groupDirection, groupRoots) ->
+                val laid = if (groupDirection == LayoutDirection.Radial) {
+                    // A radial tree grows in every direction, so it is stacked on the cross axis after
+                    // the fact instead of being given a starting cursor.
+                    radial(byId, children, groupRoots, spacing, originX, originY, measured)
+                        .mapValues { (_, point) -> LayoutPoint(point.x, point.y + crossCursor) }
+                } else {
+                    linear(
+                        byId = byId,
+                        children = children,
+                        roots = groupRoots,
+                        direction = groupDirection,
+                        spacing = spacing,
+                        originX = originX,
+                        originY = originY,
+                        measured = measured,
+                        crossStart = crossCursor,
+                    )
+                }
+                if (laid.isEmpty()) return@forEach
+                laidOut.putAll(laid)
+                // How much room this group took on the cross axis, in board units. Measured from the
+                // positions themselves, so it works for every direction without a second bookkeeping
+                // pass: for a left/right tree the cross axis is y, for an up/down tree it is x.
+                val crossExtent = if (groupDirection == LayoutDirection.Up ||
+                    groupDirection == LayoutDirection.Down
+                ) {
+                    laid.values.maxOf { it.x } - laid.values.minOf { it.x }
+                } else {
+                    laid.values.maxOf { it.y } - laid.values.minOf { it.y }
+                }
+                crossCursor += crossExtent + spacing.siblingGap * 2f
+            }
         val anchored = if (anchorRootAtOrigin) anchorAt(laidOut, roots.first(), byId, originX, originY, measured) else laidOut
         // The whole-map Arrange also tidies what it does NOT lay out: nodes that belong to no tree are
         // parked in a column beside the result instead of being left sitting on top of it (that pile
@@ -347,6 +405,14 @@ object StructureLayout {
         originX: Float,
         originY: Float,
         measured: Map<String, LayoutSize>,
+        /**
+         * Where this tree starts on its **cross** axis, in board units (v0.15.0).
+         *
+         * It exists so that trees arranged in *different* directions can share one board: each group
+         * is laid out from where the previous group ended, which is how an Up tree and a Right tree
+         * end up beside each other instead of on top of each other.
+         */
+        crossStart: Float = 0f,
     ): Map<String, LayoutPoint> {
         val horizontal = direction == LayoutDirection.Right || direction == LayoutDirection.Left
         val gap = spacing.siblingGap
@@ -388,9 +454,10 @@ object StructureLayout {
             return maxOf(span, extent)
         }
 
-        // The cross cursor is measured from zero, NOT from the origin: the transform below already
+        // The cross cursor is measured from zero (or from [crossStart], when this tree follows another
+        // one that grows in a different direction), NOT from the origin: the transform below already
         // adds originX / originY (v0.6.0 added both and every Arrange displaced the whole map).
-        var cursor = 0f
+        var cursor = crossStart
         roots.forEach { root ->
             val used = place(root, cursor)
             if (used > 0f) cursor += used + gap * 2f

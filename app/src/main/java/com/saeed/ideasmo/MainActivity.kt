@@ -203,9 +203,21 @@ private fun IdeasmoApp() {
                 }
             }
             // The strip is the LAST thing in the layout and it is a custom surface, so it has to carry
-            // the system-bar inset itself — otherwise it hides under the home indicator (Saeed's report).
-            Box(modifier = Modifier.navigationBarsPadding()) {
-                notice?.let { text ->
+            // the system-bar inset itself — otherwise it hides under the home indicator (Saeed's
+            // report of 2026-10-14).
+            //
+            // THE INSET IS APPLIED ONLY WHILE THE STRIP IS THERE. That is the whole fix for Saeed's
+            // next report (2026-10-17: "the bottom bar is far too high, it used to sit behind the home
+            // and back buttons"): v0.14.0 wrapped the strip in `Box(navigationBarsPadding())` with the
+            // `notice?.let` INSIDE it, so the inset was reserved at every moment. Two things followed
+            // from that, and both are exactly what he saw —
+            //   1. the screen above it (weight 1f) was shortened by the navigation bar's height even
+            //      with nothing to say, so every screen's bottom edge floated up;
+            //   2. a screen that already carries the inset on its own bottom bar (the board's toolbar
+            //      through its Scaffold, the Drive's custom bottom bar) was padded a second time.
+            // A padding for a view that is not on screen is not padding, it is a gap.
+            notice?.let { text ->
+                Box(modifier = Modifier.navigationBarsPadding()) {
                     NoticeBar(text = text, onDismiss = { notice = null })
                 }
             }

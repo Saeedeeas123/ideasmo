@@ -53,6 +53,7 @@ internal fun NodeTextDialog(
                 singleLine = true,
                 shape = RoundedCornerShape(Radius.medium),
                 label = { Text(stringResource(R.string.node_name)) },
+                supportingText = { Text(stringResource(R.string.node_name_hint)) },
             )
         },
         confirmButton = {

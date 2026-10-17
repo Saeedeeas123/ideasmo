@@ -62,15 +62,14 @@ import com.saeed.ideasmo.ui.theme.Spacing
 internal fun ProjectSettingsPanel(
     pattern: BoardPattern,
     palette: BoardPalette,
-    direction: LayoutDirection,
     spacing: LayoutSpacing,
     showLabels: Boolean,
     showMinimap: Boolean,
     rootCount: Int,
     hiddenCount: Int,
+    arrangedCount: Int,
     onPattern: (BoardPattern) -> Unit,
     onPalette: (BoardPalette) -> Unit,
-    onDirection: (LayoutDirection) -> Unit,
     onSpacing: (LayoutSpacing) -> Unit,
     onShowLabels: (Boolean) -> Unit,
     onShowMinimap: (Boolean) -> Unit,
@@ -163,27 +162,11 @@ internal fun ProjectSettingsPanel(
                     Column(modifier = Modifier.fillMaxWidth()) {
                         Spacer(Modifier.height(Spacing.s))
                         Text(
-                            text = stringResource(R.string.settings_direction),
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
+                            text = stringResource(R.string.settings_direction_detail, arrangedCount),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Spacer(Modifier.height(Spacing.s))
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(Spacing.s),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            LayoutDirection.values().forEach { candidate ->
-                                ChoiceChip(
-                                    text = candidate.label,
-                                    selected = candidate == direction,
-                                    onClick = { onDirection(candidate) },
-                                )
-                            }
-                        }
-                        Spacer(Modifier.height(Spacing.l))
                         Text(
                             text = stringResource(R.string.settings_spacing),
                             style = MaterialTheme.typography.titleMedium,

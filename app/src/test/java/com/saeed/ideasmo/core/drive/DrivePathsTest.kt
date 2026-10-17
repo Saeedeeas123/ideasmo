@@ -97,4 +97,64 @@ class DrivePathsTest {
         assertTrue(DriveOpen.readableInside("readme.txt"))
         assertTrue(!DriveOpen.readableInside("paper.pdf"))
     }
+
+    @Test
+    fun aFileIsReadByWhatItIsNotByTheFolderItSitsIn() {
+        // v0.15.0 — the Drive is read file-first, so the shelf of a file comes from its NAME only.
+        assertEquals(DrivePaths.DriveShelf.Image, DrivePaths.shelfOfName("photo.JPG"))
+        assertEquals(DrivePaths.DriveShelf.Text, DrivePaths.shelfOfName("notes.txt"))
+        assertEquals(DrivePaths.DriveShelf.Document, DrivePaths.shelfOfName("paper.pdf"))
+        assertEquals(DrivePaths.DriveShelf.Document, DrivePaths.shelfOfName("plan.docx"))
+        assertEquals(DrivePaths.DriveShelf.Audio, DrivePaths.shelfOfName("voice.m4a"))
+        assertEquals(DrivePaths.DriveShelf.Video, DrivePaths.shelfOfName("clip.mp4"))
+        assertEquals(DrivePaths.DriveShelf.Archive, DrivePaths.shelfOfName("backup.zip"))
+        assertEquals(DrivePaths.DriveShelf.Other, DrivePaths.shelfOfName("mystery"))
+        // A PDF and a Word file share one shelf: what the user thinks is "documents".
+        assertEquals(DrivePaths.DriveShelf.Document, DrivePaths.shelfOf(DriveKind.Pdf))
+        assertEquals(DrivePaths.DriveShelf.Document, DrivePaths.shelfOf(DriveKind.Document))
+        // And each shelf knows the folder an import of that kind is filed into.
+        assertEquals("Images", DrivePaths.DriveShelf.Image.folder)
+        assertEquals("Images", DrivePaths.folderFor(DriveKind.Image))
+        assertEquals("Documents", DrivePaths.folderFor(DriveKind.Pdf))
+        // Free-form keys survive a round trip; an unknown key is not a shelf.
+        DrivePaths.DriveShelf.order.forEach { shelf ->
+            assertEquals(shelf, DrivePaths.DriveShelf.fromKey(shelf.key))
+        }
+        assertEquals(null, DrivePaths.DriveShelf.fromKey("screenshots"))
+    }
+
+    @Test
+    fun aShelfFindsItsFilesWhereverTheySitAndNeverInTheTrash() {
+        val root = File(System.getProperty("java.io.tmpdir"), "shelf-test-" + System.nanoTime())
+        val images = File(root, "Images")
+        val nodeFolder = File(root, "Attachments/First idea")
+        val nodeDeep = File(root, "Attachments/First idea/nested")
+        val trash = File(root, ".trash")
+        listOf(images, nodeFolder, nodeDeep, trash).forEach { it.mkdirs() }
+        try {
+            File(images, "a.jpg").writeText("a")
+            // The same picture, filed as a node attachment three levels down: it is still a picture.
+            File(nodeDeep, "b.png").writeText("b")
+            File(nodeFolder, "notes.txt").writeText("c")
+            File(root, "loose.webp").writeText("d")
+            File(trash, "deleted.jpg").writeText("e")
+
+            val found = DrivePaths.filesOnShelf(root, DrivePaths.DriveShelf.Image, setOf(".trash"))
+                .map { it.name }
+                .sorted()
+            assertEquals(listOf("a.jpg", "b.png", "loose.webp"), found)
+
+            // The trash never leaks onto a shelf, and a shelf with nothing on it is simply empty.
+            assertEquals(
+                emptyList<String>(),
+                DrivePaths.filesOnShelf(root, DrivePaths.DriveShelf.Audio, setOf(".trash")),
+            )
+            assertEquals(
+                listOf("notes.txt"),
+                DrivePaths.filesOnShelf(root, DrivePaths.DriveShelf.Text, setOf(".trash")).map { it.name },
+            )
+        } finally {
+            root.deleteRecursively()
+        }
+    }
 }

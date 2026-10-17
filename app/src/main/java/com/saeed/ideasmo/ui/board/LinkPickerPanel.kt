@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import com.saeed.ideasmo.R
 import com.saeed.ideasmo.core.model.IdeaNode
 import com.saeed.ideasmo.core.model.LinkCatalog
+import com.saeed.ideasmo.core.model.LinkFamily
 import com.saeed.ideasmo.core.model.LinkType
 import com.saeed.ideasmo.core.model.NodeLink
 import com.saeed.ideasmo.core.model.NodeStore
@@ -64,8 +65,9 @@ internal fun LinkPickerPanel(
     onClose: () -> Unit,
 ) {
     var customPhrase by remember { mutableStateOf("") }
+    var query by remember { mutableStateOf("") }
+    var family by remember { mutableStateOf<LinkFamily?>(null) }
     val existing = NodeStore.linksOf(fromNode.id)
-    val families = remember { LinkCatalog.byFamily() }
 
     Surface(
         modifier = modifier
@@ -125,14 +127,28 @@ internal fun LinkPickerPanel(
                     }
                 }
 
-                families.forEach { (family, types) ->
-                    item(key = "family_${family.name}") {
-                        FamilyHeader(title = family.title, question = family.question)
-                    }
-                    items(types, key = { "pick_" + it.key }) { type ->
-                        LinkTypeRow(type = type, onClick = { onPick(type) })
-                    }
+                // ---- choosing a new relation (v0.15.0) ------------------------
+                // Search + family chips first, then only the relations that are left. 42 rows in one
+                // scroll was correct and slow; this is the "easier to choose, easier to group" half of
+                // Saeed's order.
+                item(key = "browse_header") {
+                    FamilyHeader(
+                        title = stringResource(R.string.link_pick_family),
+                        question = stringResource(R.string.link_pick_family_hint),
+                    )
                 }
+                item(key = "search") {
+                    LinkSearchField(query = query, onQuery = { query = it })
+                }
+                item(key = "families") {
+                    LinkFamilyChips(selected = family, onSelect = { family = it })
+                }
+                linkResults(
+                    query = query,
+                    family = family,
+                    selectedKey = null,
+                    onPick = onPick,
+                )
 
                 item(key = "custom") {
                     Spacer(Modifier.height(Spacing.xl))

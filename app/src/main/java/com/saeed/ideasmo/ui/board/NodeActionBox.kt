@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Undo
 import androidx.compose.material.icons.outlined.AccountTree
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.AutoFixHigh
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ContentCut
@@ -53,17 +54,19 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.saeed.ideasmo.R
 import com.saeed.ideasmo.core.model.IdeaNode
+import com.saeed.ideasmo.core.model.LayoutDirection
 import com.saeed.ideasmo.core.model.LinkColor
 import com.saeed.ideasmo.core.model.NodeAction
 import com.saeed.ideasmo.core.model.NodeActionCatalog
 import com.saeed.ideasmo.core.model.NodeStyle
 import com.saeed.ideasmo.core.model.StructureLayout
+import com.saeed.ideasmo.ui.components.ChoiceChip
 import com.saeed.ideasmo.ui.theme.Radius
 import com.saeed.ideasmo.ui.theme.Spacing
 import kotlin.math.roundToInt
 
 /** Which tool the action box is currently showing. */
-internal enum class NodeTool { None, Resize, Colour, Shape }
+internal enum class NodeTool { None, Resize, Colour, Shape, Arrange }
 
 /**
  * The node action box: **one rectangle above the node** that holds every option in one place.
@@ -100,6 +103,8 @@ internal fun NodeActionBox(
     onColor: (String?) -> Unit,
     onShape: (String) -> Unit,
     onResizeDone: () -> Unit,
+    /** Choosing how this node's branch is arranged — a direction key, or null for Free. */
+    onArrange: (String?) -> Unit,
 ) {
     val density = LocalDensity.current
     val margin = with(density) { BOX_MARGIN.toPx() }
@@ -249,6 +254,32 @@ internal fun NodeActionBox(
                                 )
                             }
 
+                            // Arrange (v0.15.0): the direction this node's branch grows in — and
+                            // Free, which gives the position back to the user. It lives HERE, in the
+                            // node's own menu, exactly as Saeed ordered ("the arrange part is in the
+                            // board's general settings; bring it into the node menu"), and the chosen
+                            // chip is the one the node is actually arranged by.
+                            NodeTool.Arrange -> Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                            ) {
+                                ArrangeChip(
+                                    key = null,
+                                    label = stringResource(R.string.arrange_free),
+                                    current = node.arrange,
+                                    onArrange = onArrange,
+                                )
+                                LayoutDirection.chipOrder.forEach { option ->
+                                    ArrangeChip(
+                                        key = option.key,
+                                        label = arrangeLabel(option),
+                                        current = node.arrange,
+                                        onArrange = onArrange,
+                                    )
+                                }
+                                ToolClose(onClick = { onTool(NodeTool.None) })
+                            }
+
                             NodeTool.None -> Unit
                         }
                     }
@@ -389,6 +420,38 @@ private fun ShapeButton(
     }
 }
 
+/** The label of one direction chip. The same words the node sheet uses, so both read the same. */
+@Composable
+private fun arrangeLabel(direction: LayoutDirection): String = stringResource(
+    when (direction) {
+        LayoutDirection.Right -> R.string.arrange_right
+        LayoutDirection.Left -> R.string.arrange_left
+        LayoutDirection.Up -> R.string.arrange_up
+        LayoutDirection.Down -> R.string.arrange_down
+        LayoutDirection.Radial -> R.string.arrange_radial
+    },
+)
+
+/**
+ * One chip in the Arrange row — Free, or one of the five directions.
+ *
+ * [key] is the value that gets stored on the node, so Free is simply `null`: the chip row is a
+ * chooser, and the selected one is what the node is actually arranged by.
+ */
+@Composable
+private fun ArrangeChip(
+    key: String?,
+    label: String,
+    current: String?,
+    onArrange: (String?) -> Unit,
+) {
+    ChoiceChip(
+        text = label,
+        selected = current == key,
+        onClick = { onArrange(key) },
+    )
+}
+
 /** Leaves a tool and puts the box back to its normal rows. */
 @Composable
 private fun ToolClose(onClick: () -> Unit) {
@@ -450,6 +513,7 @@ private fun actionLabelRes(key: String): Int = when (key) {
     NodeActionCatalog.RESIZE -> R.string.act_resize
     NodeActionCatalog.COLOR -> R.string.act_color
     NodeActionCatalog.SHAPE -> R.string.act_shape
+    NodeActionCatalog.ARRANGE -> R.string.act_arrange
     else -> R.string.act_more
 }
 
@@ -472,5 +536,6 @@ private fun actionIcon(key: String): ImageVector = when (key) {
     NodeActionCatalog.RESIZE -> Icons.Outlined.OpenInFull
     NodeActionCatalog.COLOR -> Icons.Outlined.Palette
     NodeActionCatalog.SHAPE -> Icons.Outlined.CropSquare
+    NodeActionCatalog.ARRANGE -> Icons.Outlined.AutoFixHigh
     else -> Icons.Outlined.MoreVert
 }

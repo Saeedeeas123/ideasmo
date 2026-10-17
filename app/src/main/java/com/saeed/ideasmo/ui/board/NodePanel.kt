@@ -38,6 +38,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -84,7 +88,8 @@ internal fun NodePanel(
     onToggleRoot: () -> Unit,
     onToggleCollapse: () -> Unit,
     onNudge: (Float, Float) -> Unit,
-    onArrangeBranch: (LayoutDirection) -> Unit,
+    /** Choosing how this node's branch is arranged: a direction key, or null for Free. */
+    onArrange: (String?) -> Unit,
     onDetails: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
@@ -93,6 +98,26 @@ internal fun NodePanel(
     val incoming = NodeStore.linksIn(node.id)
     val subtree = NodeStore.subtreeOf(node.id)
     val children = NodeStore.childrenOf(node.id)
+
+    // A node can carry many relations. From v0.15.0 the two lists can be filtered by the relation's
+    // own name, by the other node's name, or by any word of the sentence they read as — the same
+    // "find it instead of scrolling it" that the catalog chooser got.
+    var linkFilter by remember(node.id) { mutableStateOf("") }
+    val needle = linkFilter.trim().lowercase()
+    fun matches(link: NodeLink): Boolean {
+        if (needle.isEmpty()) return true
+        val type = LinkCatalog.byKey(link.type)
+        val other = NodeStore.nameOf(link.otherEnd(node.id)).lowercase()
+        val sentence = LinkCatalog.sentence(
+            type,
+            NodeStore.nameOf(link.fromId),
+            NodeStore.nameOf(link.toId),
+            link.label,
+        ).lowercase()
+        return type.name.lowercase().contains(needle) || other.contains(needle) || sentence.contains(needle)
+    }
+    val shownOut = outgoing.filter { matches(it) }
+    val shownIn = incoming.filter { matches(it) }
 
     val panelShape = RoundedCornerShape(topStart = Radius.large, topEnd = Radius.large)
 
@@ -195,6 +220,21 @@ internal fun NodePanel(
                     }
                 }
 
+                // ---- find a relation (v0.15.0) --------------------------------
+                // Only when there is something to find: a node with three relations does not need a
+                // search box, one with fifteen does.
+                if (outgoing.size + incoming.size > 6) {
+                    item(key = "link_filter") {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            LinkSearchField(
+                                query = linkFilter,
+                                onQuery = { linkFilter = it },
+                                placeholder = stringResource(R.string.link_filter_hint),
+                            )
+                        }
+                    }
+                }
+
                 // ---- outgoing branches, in order ------------------------------
                 item(key = "out_header") {
                     SectionTitle(stringResource(R.string.node_outgoing, outgoing.size))
@@ -206,10 +246,16 @@ internal fun NodePanel(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                if (outgoing.isEmpty()) {
+                if (shownOut.isEmpty()) {
                     item(key = "out_empty") {
                         Text(
-                            text = stringResource(R.string.node_no_outgoing),
+                            text = stringResource(
+                                if (outgoing.isEmpty()) {
+                                    R.string.node_no_outgoing
+                                } else {
+                                    R.string.link_filter_none
+                                },
+                            ),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.outline,
                             modifier = Modifier.padding(vertical = Spacing.s),
@@ -247,7 +293,7 @@ internal fun NodePanel(
                             )
                         }
                     }
-                    items(outgoing, key = { "out_" + it.id }) { link ->
+                    items(shownOut, key = { "out_" + it.id }) { link ->
                         BranchRow(
                             link = link,
                             index = outgoing.indexOfFirst { it.id == link.id },
@@ -262,25 +308,33 @@ internal fun NodePanel(
                 item(key = "in_header") {
                     SectionTitle(stringResource(R.string.node_incoming, incoming.size))
                 }
-                if (incoming.isEmpty()) {
+                if (shownIn.isEmpty()) {
                     item(key = "in_empty") {
                         Text(
-                            text = stringResource(R.string.node_no_incoming),
+                            text = stringResource(
+                                if (incoming.isEmpty()) {
+                                    R.string.node_no_incoming
+                                } else {
+                                    R.string.link_filter_none
+                                },
+                            ),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.outline,
                             modifier = Modifier.padding(vertical = Spacing.s),
                         )
                     }
                 } else {
-                    items(incoming, key = { "in_" + it.id }) { link ->
+                    items(shownIn, key = { "in_" + it.id }) { link ->
                         val type = LinkCatalog.byKey(link.type)
                         LinkRow(
+                            title = LinkCatalog.displayLabel(type, link.label),
                             sentence = LinkCatalog.sentence(
                                 type,
                                 NodeStore.nameOf(link.fromId),
                                 NodeStore.nameOf(link.toId),
                                 link.label,
                             ),
+                            note = link.note,
                             type = type,
                             onClick = { onOpenLink(link) },
                         )
@@ -310,26 +364,23 @@ internal fun NodePanel(
                             horizontalArrangement = Arrangement.spacedBy(Spacing.s),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            // Free first, then the five directions in the shared chip order. The selected chip is the
+                            // arrangement the node actually carries (v0.15.0), so this sheet and the
+                            // node's action box can never disagree about it.
                             DirectionChip(
-                                label = stringResource(R.string.arrange_left),
-                                icon = Icons.AutoMirrored.Outlined.KeyboardArrowLeft,
-                                onClick = { onArrangeBranch(LayoutDirection.Left) },
+                                label = stringResource(R.string.arrange_free),
+                                icon = Icons.Outlined.Close,
+                                selected = node.arrange == null,
+                                onClick = { onArrange(null) },
                             )
-                            DirectionChip(
-                                label = stringResource(R.string.arrange_right),
-                                icon = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
-                                onClick = { onArrangeBranch(LayoutDirection.Right) },
-                            )
-                            DirectionChip(
-                                label = stringResource(R.string.arrange_up),
-                                icon = Icons.Outlined.KeyboardArrowUp,
-                                onClick = { onArrangeBranch(LayoutDirection.Up) },
-                            )
-                            DirectionChip(
-                                label = stringResource(R.string.arrange_down),
-                                icon = Icons.Outlined.KeyboardArrowDown,
-                                onClick = { onArrangeBranch(LayoutDirection.Down) },
-                            )
+                            LayoutDirection.chipOrder.forEach { direction ->
+                                DirectionChip(
+                                    label = stringResource(directionLabel(direction)),
+                                    icon = directionIcon(direction),
+                                    selected = node.arrange == direction.key,
+                                    onClick = { onArrange(direction.key) },
+                                )
+                            }
                         }
                     }
                 }
@@ -462,18 +513,39 @@ private fun BranchRow(
         ) {
             LinkSwatch(type = type, modifier = Modifier.width(SWATCH_W))
             Spacer(Modifier.width(Spacing.s))
-            Text(
-                text = LinkCatalog.sentence(
-                    type,
-                    NodeStore.nameOf(link.fromId),
-                    NodeStore.nameOf(link.toId),
-                    link.label,
-                ),
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-            )
+            // Two lines: WHAT the relation is (its catalog name, which is the word the user chose)
+            // and then how it reads as a sentence. Scanning a branch's relations is the thing Saeed
+            // asked to make easier, and one sentence per row made that hard.
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = LinkCatalog.displayLabel(type, link.label),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = LinkCatalog.sentence(
+                        type,
+                        NodeStore.nameOf(link.fromId),
+                        NodeStore.nameOf(link.toId),
+                        link.label,
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                link.note?.takeIf { it.isNotBlank() }?.let { note ->
+                    Text(
+                        text = note,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
         }
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -522,7 +594,13 @@ private fun BranchRow(
 }
 
 @Composable
-private fun LinkRow(sentence: String, type: com.saeed.ideasmo.core.model.LinkType, onClick: () -> Unit) {
+private fun LinkRow(
+    title: String,
+    sentence: String,
+    note: String?,
+    type: com.saeed.ideasmo.core.model.LinkType,
+    onClick: () -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -534,26 +612,68 @@ private fun LinkRow(sentence: String, type: com.saeed.ideasmo.core.model.LinkTyp
     ) {
         LinkSwatch(type = type, modifier = Modifier.width(SWATCH_W))
         Spacer(Modifier.width(Spacing.s))
-        Text(
-            text = sentence,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 3,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = sentence,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            note?.takeIf { it.isNotBlank() }?.let { text ->
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
     }
 }
 
+/** The label of one direction, in the words the node sheet and the action box both use. */
+@Composable
+private fun directionLabel(direction: LayoutDirection): Int = when (direction) {
+    LayoutDirection.Right -> R.string.arrange_right
+    LayoutDirection.Left -> R.string.arrange_left
+    LayoutDirection.Up -> R.string.arrange_up
+    LayoutDirection.Down -> R.string.arrange_down
+    LayoutDirection.Radial -> R.string.arrange_radial
+}
+
+/** The arrow a direction is drawn with. Radial points back at its own centre, hence MyLocation. */
+private fun directionIcon(direction: LayoutDirection): ImageVector = when (direction) {
+    LayoutDirection.Right -> Icons.AutoMirrored.Outlined.KeyboardArrowRight
+    LayoutDirection.Left -> Icons.AutoMirrored.Outlined.KeyboardArrowLeft
+    LayoutDirection.Up -> Icons.Outlined.KeyboardArrowUp
+    LayoutDirection.Down -> Icons.Outlined.KeyboardArrowDown
+    LayoutDirection.Radial -> Icons.Outlined.MyLocation
+}
+
 /**
- * One of the four directions a branch can be arranged in. A chip, not a menu: Saeed explicitly
- * dropped the "small list pops out of the button" idea in favour of a choice inside the node's own
- * properties.
+ * One of the five directions a branch can be arranged in (plus Free, which the sheet adds itself).
+ * A chip, not a menu: Saeed explicitly dropped the "small list pops out of the button" idea in favour
+ * of a choice inside the node's own properties.
  */
 @Composable
-private fun DirectionChip(label: String, icon: ImageVector, onClick: () -> Unit) {
+private fun DirectionChip(
+    label: String,
+    icon: ImageVector,
+    selected: Boolean = false,
+    onClick: () -> Unit,
+) {
     ChoiceChip(
         text = label,
-        selected = false,
+        selected = selected,
         onClick = onClick,
         leading = {
             Icon(

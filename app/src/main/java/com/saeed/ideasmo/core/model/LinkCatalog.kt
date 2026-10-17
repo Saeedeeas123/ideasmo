@@ -331,6 +331,42 @@ object LinkCatalog {
         LinkFamily.values().map { family -> family to all.filter { it.family == family } }
 
     /**
+     * **Finding a relation among the 42** (v0.15.0).
+     *
+     * Saeed's order was to make the links easier to *choose* and to *edit*: a flat list of 42 types
+     * with seven family headings is correct but slow to walk. This is the pure part of that — it
+     * filters by family and by a search phrase, and it only ever returns families that still have
+     * something in them, so the headings never appear empty.
+     *
+     * The match is deliberately wide: a word from the type's name ("part"), from how it reads
+     * ("is part of"), from its example ("Wheel"), from its meaning ("component"), from its key
+     * ("part_of") and from its family ("Composition") all find it, because which of those the user
+     * remembers is not something to guess at.
+     */
+    fun browse(query: String = "", family: LinkFamily? = null): List<Pair<LinkFamily, List<LinkType>>> {
+        val needle = query.trim().lowercase()
+        return byFamily().mapNotNull { (candidate, types) ->
+            if (family != null && candidate != family) return@mapNotNull null
+            val matching = if (needle.isEmpty()) types else types.filter { matches(it, needle) }
+            if (matching.isEmpty()) null else candidate to matching
+        }
+    }
+
+    /** How many types each family holds — what the family chips count. */
+    fun countByFamily(): Map<LinkFamily, Int> = all.groupingBy { it.family }.eachCount()
+
+    private fun matches(type: LinkType, needle: String): Boolean =
+        type.name.lowercase().contains(needle) ||
+            type.key.lowercase().contains(needle) ||
+            type.readAs.lowercase().contains(needle) ||
+            type.example.lowercase().contains(needle) ||
+            type.meaning.lowercase().contains(needle) ||
+            type.family.title.lowercase().contains(needle)
+
+    /** True when [query] finds nothing at all — used to say so honestly instead of showing nothing. */
+    fun searchIsEmpty(query: String): Boolean = query.isNotBlank() && browse(query).isEmpty()
+
+    /**
      * Reads a link as a sentence. A custom label overrides the built-in phrase, which is the
      * escape hatch for relations the catalog does not name.
      */

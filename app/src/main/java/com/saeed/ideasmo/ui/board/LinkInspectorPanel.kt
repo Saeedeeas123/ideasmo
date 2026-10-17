@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import com.saeed.ideasmo.R
 import com.saeed.ideasmo.core.model.LinkCatalog
 import com.saeed.ideasmo.core.model.LinkColor
+import com.saeed.ideasmo.core.model.LinkFamily
 import com.saeed.ideasmo.core.model.LinkType
 import com.saeed.ideasmo.core.model.NodeLink
 import com.saeed.ideasmo.core.model.NodeStore
@@ -71,6 +72,8 @@ internal fun LinkInspectorPanel(
     link: NodeLink,
     onUpdate: (NodeLink) -> Unit,
     onOpenOther: (NodeLink) -> Unit,
+    /** Jump to one end of the relation on the board — "show me this node". */
+    onOpenNode: (String) -> Unit,
     onDelete: () -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
@@ -78,12 +81,16 @@ internal fun LinkInspectorPanel(
     val type = LinkCatalog.byKey(link.type)
     val fromName = NodeStore.nameOf(link.fromId)
     val toName = NodeStore.nameOf(link.toId)
-    val families = remember { LinkCatalog.byFamily() }
     val currentRole = link.colorRole()
     val siblings = remember(link.id, link.fromId, link.toId) {
         NodeStore.links.filter { it.id != link.id && it.connects(link.fromId, link.toId) }
     }
     var phrase by remember(link.id) { mutableStateOf(link.label ?: "") }
+    // Editing this relation (v0.15.0): the type list is searchable and can be narrowed to one family,
+    // and it opens on the family the relation already belongs to, so the current choice is in view.
+    var query by remember(link.id) { mutableStateOf("") }
+    var family by remember(link.id) { mutableStateOf<LinkFamily?>(type.family) }
+    var note by remember(link.id) { mutableStateOf(link.note ?: "") }
 
     Surface(
         modifier = modifier
@@ -170,12 +177,14 @@ internal fun LinkInspectorPanel(
                             label = stringResource(R.string.link_from),
                             name = fromName,
                             emphasised = type.directed,
+                            onOpen = { onOpenNode(link.fromId) },
                         )
                         Spacer(Modifier.height(Spacing.s))
                         EndRow(
                             label = stringResource(R.string.link_to),
                             name = toName,
                             emphasised = false,
+                            onOpen = { onOpenNode(link.toId) },
                         )
                         Spacer(Modifier.height(Spacing.s))
                         Row(
@@ -246,23 +255,6 @@ internal fun LinkInspectorPanel(
                                 modifier = Modifier.size(Sizes.iconMd),
                             )
                         }
-                    }
-                }
-
-                // ---- change the relation -------------------------------------
-                item(key = "type_header") {
-                    SectionTitle(stringResource(R.string.link_change_type))
-                }
-                families.forEach { (family, types) ->
-                    item(key = "family_${family.name}") {
-                        FamilyHeader(title = family.title, question = family.question)
-                    }
-                    items(types, key = { "type_" + it.key }) { candidate ->
-                        LinkTypeRow(
-                            type = candidate,
-                            selected = candidate.key == type.key,
-                            onClick = { onUpdate(link.copy(type = candidate.key)) },
-                        )
                     }
                 }
 
@@ -357,6 +349,75 @@ internal fun LinkInspectorPanel(
                     }
                 }
 
+                // ---- the relation's own note (v0.15.0) ------------------------
+                // NodeLink.note has existed in the model and in the saved file since relations got
+                // an identity, but nothing ever showed it. A relation can now carry a sentence that
+                // explains it ("agreed in the October review"), which is what makes the two ends
+                // self-explanatory months later.
+                item(key = "note_header") {
+                    SectionTitle(stringResource(R.string.link_note))
+                }
+                item(key = "note") {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = note,
+                            onValueChange = { note = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(Radius.medium),
+                            minLines = 2,
+                            label = { Text(stringResource(R.string.link_note_hint)) },
+                        )
+                        Spacer(Modifier.height(Spacing.s))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            TextButton(
+                                onClick = {
+                                    note = ""
+                                    onUpdate(link.copy(note = null))
+                                },
+                                enabled = link.note != null,
+                                modifier = Modifier.heightIn(min = Sizes.touchMin),
+                            ) {
+                                Text(stringResource(R.string.link_note_clear))
+                            }
+                            TextButton(
+                                onClick = {
+                                    val trimmed = note.trim()
+                                    onUpdate(link.copy(note = trimmed.ifEmpty { null }))
+                                },
+                                enabled = note.trim() != (link.note ?: ""),
+                                modifier = Modifier.heightIn(min = Sizes.touchMin),
+                            ) {
+                                Text(stringResource(R.string.link_note_apply))
+                            }
+                        }
+                    }
+                }
+
+                // ---- change the relation -------------------------------------
+                // LAST, because it is the long one: everything that describes the relation as it is
+                // now — ends, colour, phrase, note — is reachable without scrolling past 42 types, and
+                // the catalog to change it into sits at the bottom where a long list belongs.
+                item(key = "type_header") {
+                    SectionTitle(stringResource(R.string.link_change_type))
+                }
+                item(key = "type_search") {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        LinkSearchField(query = query, onQuery = { query = it })
+                        Spacer(Modifier.height(Spacing.s))
+                        LinkFamilyChips(selected = family, onSelect = { family = it })
+                    }
+                }
+                linkResults(
+                    query = query,
+                    family = family,
+                    selectedKey = type.key,
+                    onPick = { candidate -> onUpdate(link.copy(type = candidate.key)) },
+                )
+
                 // ---- delete ---------------------------------------------------
                 item(key = "delete") {
                     Column(modifier = Modifier.fillMaxWidth()) {
@@ -385,7 +446,7 @@ internal fun LinkInspectorPanel(
 }
 
 @Composable
-private fun EndRow(label: String, name: String, emphasised: Boolean) {
+private fun EndRow(label: String, name: String, emphasised: Boolean, onOpen: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -406,6 +467,15 @@ private fun EndRow(label: String, name: String, emphasised: Boolean) {
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
+        // "Show me this end" — one tap and the board is centred on that node with it selected, so a
+        // relation can be followed in either direction without closing the panel by hand first.
+        IconButton(onClick = onOpen, modifier = Modifier.size(Sizes.touchMin)) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Outlined.ArrowForward,
+                contentDescription = stringResource(R.string.link_open_node),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
