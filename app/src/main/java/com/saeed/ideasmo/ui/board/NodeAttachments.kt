@@ -138,6 +138,7 @@ internal fun NodeNotesDialog(
 internal fun NodeImagesDialog(
     node: IdeaNode,
     onAdd: () -> Unit,
+    onFromDrive: () -> Unit,
     onRemove: (Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -203,11 +204,19 @@ internal fun NodeImagesDialog(
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
                 }
                 Spacer(Modifier.height(Spacing.s))
-                TextButton(
-                    onClick = onAdd,
-                    modifier = Modifier.heightIn(min = Sizes.touchMin),
-                ) {
-                    Text(stringResource(R.string.att_add_image))
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                    TextButton(
+                        onClick = onAdd,
+                        modifier = Modifier.heightIn(min = Sizes.touchMin),
+                    ) {
+                        Text(stringResource(R.string.att_add_image))
+                    }
+                    TextButton(
+                        onClick = onFromDrive,
+                        modifier = Modifier.heightIn(min = Sizes.touchMin),
+                    ) {
+                        Text(stringResource(R.string.att_from_drive))
+                    }
                 }
             }
         },
@@ -222,6 +231,7 @@ internal fun NodeImagesDialog(
 internal fun NodeFilesDialog(
     node: IdeaNode,
     onAdd: () -> Unit,
+    onFromDrive: () -> Unit,
     onRemove: (Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -285,6 +295,12 @@ internal fun NodeFilesDialog(
                         modifier = Modifier.heightIn(min = Sizes.touchMin),
                     ) {
                         Text(stringResource(R.string.att_add_file))
+                    }
+                    TextButton(
+                        onClick = onFromDrive,
+                        modifier = Modifier.heightIn(min = Sizes.touchMin),
+                    ) {
+                        Text(stringResource(R.string.att_from_drive))
                     }
                 }
             }

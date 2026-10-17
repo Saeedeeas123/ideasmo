@@ -54,6 +54,8 @@ import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.SelectAll
 import androidx.compose.material.icons.automirrored.outlined.StickyNote2
 import androidx.compose.material.icons.outlined.VisibilityOff
+import com.saeed.ideasmo.core.drive.DriveKind
+import com.saeed.ideasmo.core.drive.DriveStore
 import com.saeed.ideasmo.core.util.copyFileIntoAppStorage
 import kotlin.math.abs
 import androidx.compose.material3.Card
@@ -121,6 +123,7 @@ import com.saeed.ideasmo.core.prefs.BoardPrefs
 import com.saeed.ideasmo.core.util.copyPictureIntoAppStorage
 import com.saeed.ideasmo.ui.components.NoticeBar
 import com.saeed.ideasmo.ui.components.ToolButton
+import com.saeed.ideasmo.ui.drive.DrivePickerDialog
 import com.saeed.ideasmo.ui.theme.Radius
 import com.saeed.ideasmo.ui.theme.Sizes
 import com.saeed.ideasmo.ui.theme.Spacing
@@ -373,6 +376,9 @@ fun BoardScreen(
     var notesFor by remember { mutableStateOf<String?>(null) }
     var imagesFor by remember { mutableStateOf<String?>(null) }
     var filesDialogFor by remember { mutableStateOf<String?>(null) }
+    // Choosing a file that is already in the Drive for a node (v0.13.0).
+    var drivePickFor by remember { mutableStateOf<String?>(null) }
+    var drivePickImages by remember { mutableStateOf(true) }
     var imageTarget by remember { mutableStateOf<String?>(null) }
     var fileTarget by remember { mutableStateOf<String?>(null) }
     var fragmentRequest by remember { mutableStateOf<FragmentRequest?>(null) }
@@ -454,7 +460,8 @@ fun BoardScreen(
                 ?.use { cursor ->
                     if (cursor.moveToFirst()) cursor.getString(0) else null
                 }
-            val path = copyFileIntoAppStorage(context, uri, name)
+            val owner = NodeStore.byId(target)?.name ?: "New"
+            val path = DriveStore.importUri(context, uri, DriveStore.nodeFolder(owner), name)
             fileTarget = null
             if (path == null) {
                 notice = context.getString(R.string.file_pick_failed)
@@ -472,7 +479,9 @@ fun BoardScreen(
             AppLog.i("Board", "picture pick cancelled")
             imageTarget = null
         } else {
-            val path = copyPictureIntoAppStorage(context, uri)
+            // v0.13.0: every file the app keeps lives in the Drive.
+            val owner = target?.let { NodeStore.byId(it)?.name } ?: "New"
+            val path = DriveStore.importUri(context, uri, DriveStore.nodeFolder(owner))
             if (path == null) {
                 notice = context.getString(R.string.pic_pick_failed)
             } else if (target != null) {
@@ -1657,6 +1666,10 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
             if (imagesNode != null) {
                 NodeImagesDialog(
                     node = imagesNode,
+                    onFromDrive = {
+                        drivePickFor = imagesNode.id
+                        drivePickImages = true
+                    },
                     onAdd = {
                         imageTarget = imagesNode.id
                         pickImage.launch(
@@ -1671,6 +1684,10 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
             if (filesNode != null) {
                 NodeFilesDialog(
                     node = filesNode,
+                    onFromDrive = {
+                        drivePickFor = filesNode.id
+                        drivePickImages = false
+                    },
                     onAdd = {
                         fileTarget = filesNode.id
                         pickFile.launch(arrayOf("*/*"))
@@ -1680,6 +1697,25 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                 )
             }
 
+            val drivePickNode = drivePickFor?.let { NodeStore.byId(it) }
+            if (drivePickNode != null) {
+                DrivePickerDialog(
+                    title = stringResource(
+                        if (drivePickImages) R.string.att_from_drive_images else R.string.att_from_drive_files,
+                    ),
+                    onlyKind = if (drivePickImages) DriveKind.Image else null,
+                    onPick = { path ->
+                        if (drivePickImages) {
+                            NodeStore.addPicture(context, drivePickNode.id, path)
+                        } else {
+                            NodeStore.addFile(context, drivePickNode.id, path)
+                        }
+                        drivePickFor = null
+                        notice = context.getString(R.string.att_from_drive_added)
+                    },
+                    onDismiss = { drivePickFor = null },
+                )
+            }
             val detailsNode = detailsFor?.let { NodeStore.byId(it) }
             if (detailsNode != null) {
                 NodeDetailsDialog(

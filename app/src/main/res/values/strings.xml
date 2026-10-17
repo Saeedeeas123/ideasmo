@@ -389,4 +389,23 @@
     <string name="select_hint">Tap nodes to add or remove them, or drag a window around several</string>
     <string name="file_pick_failed">Could not store the file</string>
     <string name="file_added">File added</string>
+    <!-- v0.13.0 · the Drive: the app's one file store -->
+    <string name="drive_title">Drive</string>
+    <string name="drive_usage">%1$s stored in the app\'s own drive</string>
+    <string name="drive_import">Add a file</string>
+    <string name="drive_imported">%1$s added to the Drive</string>
+    <string name="drive_import_failed">Could not add that file</string>
+    <string name="drive_new_folder">New folder</string>
+    <string name="drive_folder_name">Folder name</string>
+    <string name="drive_empty">Nothing here yet</string>
+    <string name="drive_empty_detail">Whatever you attach to a node is stored here too — and anything you add here can be attached to a node.</string>
+    <string name="drive_delete_title">Move to trash?</string>
+    <string name="drive_delete_detail">%1$s will be moved to the Drive\'s trash, not destroyed.</string>
+    <string name="drive_no_viewer">There is no viewer inside the app for this kind of file yet.</string>
+    <string name="drive_missing">That file is no longer in the Drive.</string>
+    <string name="att_from_drive">From Drive</string>
+    <string name="att_from_drive_images">Pick an image from the Drive</string>
+    <string name="att_from_drive_files">Pick a file from the Drive</string>
+    <string name="att_from_drive_added">Attached from the Drive</string>
+    <string name="back">Back</string>
 </resources>

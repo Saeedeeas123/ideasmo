@@ -629,3 +629,35 @@ no dependency where a Compose `Canvas` would do.
   new order; are the count badges legible; does the 24 dp collapse circle still feel tappable; do the
   attachment dialogs read well with several notes; and does the selection window feel right without
   the long press.
+
+### v0.13.0 sign-off (2026-10-17, second round)
+- **The Drive exists.** `core/drive/DriveStore.kt` owns one folder — `filesDir/drive` — and everything the
+  app stores goes through it: `list`, `importUri`, `createFolder`, `writeText`, `rename`, `delete`,
+  `nodeFolder`, `migrateLegacy`, plus the pure rules in `DrivePaths.kt` (kind by extension, safe names,
+  collision-free names, human sizes and dates). Paths are always relative to the Drive root, so the whole
+  store can be moved or backed up as one folder; `..` is refused; a delete moves the entry to `.trash`.
+- **The file manager** (`ui/drive/DriveScreen.kt`) is deliberately light: a title with the bytes used, a
+  breadcrumb you can tap, one column of rows (kind icon, name, size · date), Add a file, New folder, and a
+  delete with a confirmation that says the file goes to the trash. Tapping a folder opens it; tapping an
+  image opens it in a viewer; tapping a text file shows the text; anything else says honestly that there is
+  no in-app viewer. It is reachable from the **Home → Drive** tile.
+- **The Drive and the nodes are the same storage.** `pickImage`/`pickFile` on the board now import through
+  `DriveStore.importUri(..., DriveStore.nodeFolder(name))` instead of writing to `filesDir/pics|files`, so
+  every picture and file a node carries is a Drive file. The node's Image and Files dialogs gained **From
+  Drive**, which opens `DrivePickerDialog` (folders navigable, images filtered for pictures) and attaches a
+  file that is already stored — no copy, one file.
+- **Nothing is lost on upgrade**: `DriveStore.migrateLegacy` moves `pics/` and `files/` into
+  `Attachments/Imported/` on the first launch, and `NodeStore.remapAttachments` rewrites the stored paths
+  of every node in one pass. Both run in `MainActivity.onCreate`, before any screen is composed.
+- Verified how: `:app:testDebugUnitTest` **47/47 green** — the new `DrivePathsTest` is 6 tests (every kind
+  classified from the name, names sanitised, a second file with the same name gets a counter, sizes read as
+  a human writes them, paths join and step up, a row subtitle is never empty); plus StructureLayoutTest 26,
+  NodeCatalogTest 9, FragmentBuilderTest 6. `:app:assembleDebug` **BUILD SUCCESSFUL with 0 Kotlin warnings**
+  (one label-shadowing warning found and fixed in the migration loop; two strings needed their apostrophes
+  escaped, the same aapt2 trap as v0.6.0).
+- Not verified: the device. Things to look at: does the file manager feel light enough; is the breadcrumb
+  clear at three levels deep; does the viewer handle a big photo; do node attachments appear under
+  `Attachments/<node>`; and does the migration keep every existing picture.
+- Still open: a file in the Drive cannot be OPENED in another app yet (no FileProvider — the Drive shows
+  what it can show itself); no rename or move inside the Drive (create, import, delete are in); notes are
+  not yet exported as Drive files even though `DriveStore.writeText` exists for it.

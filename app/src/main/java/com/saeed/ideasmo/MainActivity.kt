@@ -19,6 +19,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import com.saeed.ideasmo.core.drive.DriveStore
 import com.saeed.ideasmo.core.log.AppLog
 import com.saeed.ideasmo.core.log.LogViewerScreen
 import com.saeed.ideasmo.core.model.NodeStore
@@ -26,6 +27,7 @@ import com.saeed.ideasmo.core.prefs.BoardPrefs
 import com.saeed.ideasmo.core.prefs.ThemePrefs
 import com.saeed.ideasmo.ui.board.BoardScreen
 import com.saeed.ideasmo.ui.components.NoticeBar
+import com.saeed.ideasmo.ui.drive.DriveScreen
 import com.saeed.ideasmo.ui.help.HelpScreen
 import com.saeed.ideasmo.ui.home.HomeEntry
 import com.saeed.ideasmo.ui.home.HomeScreen
@@ -43,6 +45,11 @@ class MainActivity : ComponentActivity() {
         AppLog.init(applicationContext)
         AppLog.i("Lifecycle", "onCreate")
         NodeStore.init(applicationContext)
+        // The Drive is the app's one file store (v0.13.0). Initialise it before anything can attach
+        // a file, and move the pre-Drive attachment folders into it so no node loses its pictures.
+        DriveStore.init(applicationContext)
+        val moved = DriveStore.migrateLegacy(applicationContext)
+        if (moved.isNotEmpty()) NodeStore.remapAttachments(applicationContext, moved)
         BoardPrefs.init(applicationContext)
         enableEdgeToEdge()
         setContent {
@@ -82,6 +89,7 @@ class MainActivity : ComponentActivity() {
 private sealed interface Screen {
     data object Home : Screen
     data object Project : Screen
+    data object Drive : Screen
     data object Board : Screen
     data object Settings : Screen
     data object Help : Screen
@@ -148,6 +156,7 @@ private fun IdeasmoApp() {
                         AppLog.i("UI", "home entry tapped: " + entry.name)
                         when (entry) {
                             HomeEntry.Project -> push(Screen.Project)
+                            HomeEntry.Drive -> push(Screen.Drive)
                             HomeEntry.Settings -> push(Screen.Settings)
                             else -> notBuilt(context.getString(entry.labelRes))
                         }
@@ -173,6 +182,7 @@ private fun IdeasmoApp() {
                 onBack = { pop() },
             )
 
+            Screen.Drive -> DriveScreen(onBack = { pop() })
             Screen.Settings -> SettingsScreen(
                 isDark = isDark,
                 onToggleTheme = toggleTheme,

@@ -912,6 +912,27 @@ object NodeStore {
         AppLog.i("NodeStore", "snapshot restored: " + snapshot.nodes.size + " node(s), " + snapshot.links.size + " link(s)")
     }
 
+    /**
+     * Rewrites stored attachment paths after the Drive migration moved the files (v0.13.0).
+     * Only the paths change — nothing is copied and no node is otherwise touched.
+     */
+    fun remapAttachments(context: Context, mapping: Map<String, String>) {
+        if (mapping.isEmpty()) return
+        var changed = 0
+        items.forEachIndexed { index, node ->
+            val pictures = node.pictures.map { mapping[it] ?: it }
+            val files = node.files.map { mapping[it] ?: it }
+            if (pictures != node.pictures || files != node.files) {
+                items[index] = node.copy(pictures = pictures, files = files)
+                changed++
+            }
+        }
+        if (changed > 0) {
+            persist(context)
+            AppLog.i("NodeStore", "attachment paths remapped on " + changed + " node(s)")
+        }
+    }
+
     fun persist(context: Context) {
         try {
             val nodesArray = JSONArray()

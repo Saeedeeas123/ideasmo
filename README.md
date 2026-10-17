@@ -3,7 +3,7 @@
 An idea processor for Android: capture an idea, give it structure, keep it in one place.
 Personal project of Saeed (`com.saeed.ideasmo`), built entirely on-device.
 
-**Current version: v0.12.0** (versionCode 12)
+**Current version: v0.13.0** (versionCode 13)
 
 ## What it is
 
