@@ -85,7 +85,9 @@ DESIGN.md                    the design contract (tokens, screens, decisions, ho
 
 | v0.12.0 | **Nodes carry lists**: any number of **notes**, **images** and **files** (new action), each action showing its count, the card showing only small icons with counts — never the content; the collapse ⊖/⊕ moved to the start of the card row so a small card can no longer hide it; **Name** replaces Text; the box order is exactly Name · Child · Sibling · Connect · Note · Image · Files · Shape · Colour · Resize · Copy · Cut · Paste · Delete · Reattach · More (Duplicate moved to the node sheet); **the list and graph buttons are gone** (the board is the graph) and the toolbar is Fit · Undo | − % + | Redo · View/Edit; **View mode is read-only**; **Select nodes** next to New node — tap to add/remove, drag a window to select everything inside |
 
-## Honest limits (v0.12.0)
+| v0.13.0 | **The Drive** — one private file store for the whole app (`filesDir/drive`) with a light file manager: tappable breadcrumb, folders, import any file, new folder, delete (moved to `.trash`, nothing destroyed), and a viewer that opens images and text. **It is the same storage the nodes use**: a file picked for a node is copied into the Drive under `Attachments/<node>/`, and a node's Image/Files dialogs can attach a file that is already in the Drive. The pre-Drive `pics`/`files` folders are migrated in on first run and every stored attachment path is rewritten, so nothing is lost. |
+
+## Honest limits (v0.13.0)
 
 - **Group** and **Schema** from the reference app are still not built: Schema is deferred on your
   instruction, and Group is waiting on one answer — is a group a *frame that holds* the selected
