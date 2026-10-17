@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -29,6 +30,7 @@ import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.FileCopy
 import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.OpenInFull
@@ -84,6 +86,8 @@ internal enum class NodeTool { None, Resize, Colour, Shape }
 @Composable
 internal fun NodeActionBox(
     node: IdeaNode,
+    linkCount: Int,
+    childCount: Int,
     centreX: Float,
     nodeTopPx: Float,
     nodeBottomPx: Float,
@@ -107,7 +111,7 @@ internal fun NodeActionBox(
     val boxW = minOf(viewportWidth - margin * 2f, with(density) { BOX_MAX_W.toPx() })
     val boxWDp = with(density) { boxW.toDp() }
 
-    val rows = NodeActionCatalog.all.chunked(COLUMNS)
+    val rows = NodeActionCatalog.box.chunked(COLUMNS)
     val bodyH = rows.size * cellH + (rows.size - 1) * rowGap
     val toolH = if (tool == NodeTool.None) 0f else toolRowH + rowGap
     val boxH = pad * 2f + bodyH + toolH
@@ -152,6 +156,17 @@ internal fun NodeActionBox(
                                 action = action,
                                 enabled = action.key != NodeActionCatalog.PASTE || clipboardHasContent,
                                 height = CELL_H,
+                                // How many of that thing the node already has (Saeed: the Note and Image
+                                // actions must show the number, and the same goes for the counts that
+                                // used to live in the list view).
+                                badge = when (action.key) {
+                                    NodeActionCatalog.NOTES -> node.notes.size
+                                    NodeActionCatalog.IMAGE -> node.pictures.size
+                                    NodeActionCatalog.FILES -> node.files.size
+                                    NodeActionCatalog.CONNECT -> linkCount
+                                    NodeActionCatalog.CHILD -> childCount
+                                    else -> 0
+                                },
                                 modifier = Modifier.weight(1f),
                                 onClick = { onAction(action.key) },
                             )
@@ -249,6 +264,7 @@ private fun ActionCell(
     action: NodeAction,
     enabled: Boolean,
     height: Dp,
+    badge: Int = 0,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
@@ -257,30 +273,52 @@ private fun ActionCell(
     } else {
         MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
     }
-    Column(
-        modifier = modifier
-            .height(height)
-            .clip(RoundedCornerShape(Radius.small))
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(vertical = Spacing.xs),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Icon(
-            imageVector = actionIcon(action.key),
-            contentDescription = stringResource(actionLabelRes(action.key)),
-            tint = tint,
-            modifier = Modifier.size(22.dp),
-        )
-        Spacer(Modifier.height(2.dp))
-        Text(
-            text = stringResource(actionLabelRes(action.key)),
-            style = MaterialTheme.typography.labelSmall,
-            color = tint,
-            maxLines = 2,
-            textAlign = TextAlign.Center,
-            overflow = TextOverflow.Ellipsis,
-        )
+    Box(modifier = modifier) {
+        Column(
+            modifier = Modifier
+                .height(height)
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(Radius.small))
+                .clickable(enabled = enabled, onClick = onClick)
+                .padding(vertical = Spacing.xs),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Icon(
+                imageVector = actionIcon(action.key),
+                contentDescription = stringResource(actionLabelRes(action.key)),
+                tint = tint,
+                modifier = Modifier.size(22.dp),
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = stringResource(actionLabelRes(action.key)),
+                style = MaterialTheme.typography.labelSmall,
+                color = tint,
+                maxLines = 2,
+                textAlign = TextAlign.Center,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        // The count sits on the action itself: "Note 3", "Image 5", "Files 2", "Connect 4", "Child 2".
+        if (badge > 0) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 1.dp, end = 2.dp)
+                    .size(width = 18.dp, height = 14.dp)
+                    .clip(RoundedCornerShape(7.dp))
+                    .background(MaterialTheme.colorScheme.primary),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = badge.toString(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    maxLines = 1,
+                )
+            }
+        }
     }
 }
 
@@ -395,10 +433,11 @@ private val SWATCH_W = 44.dp
 
 /** The label shown on the button — the catalogue's own labels live in strings.xml by key. */
 private fun actionLabelRes(key: String): Int = when (key) {
-    NodeActionCatalog.TEXT -> R.string.act_text
+    NodeActionCatalog.TEXT -> R.string.act_name
     NodeActionCatalog.IMAGE -> R.string.act_image
+    NodeActionCatalog.FILES -> R.string.act_files
     NodeActionCatalog.CONNECT -> R.string.act_connect
-    NodeActionCatalog.NOTES -> R.string.act_notes
+    NodeActionCatalog.NOTES -> R.string.act_note
     NodeActionCatalog.MORE -> R.string.act_more
     NodeActionCatalog.COPY -> R.string.act_copy
     NodeActionCatalog.CUT -> R.string.act_cut
@@ -418,6 +457,7 @@ private fun actionLabelRes(key: String): Int = when (key) {
 private fun actionIcon(key: String): ImageVector = when (key) {
     NodeActionCatalog.TEXT -> Icons.Outlined.Edit
     NodeActionCatalog.IMAGE -> Icons.Outlined.Image
+    NodeActionCatalog.FILES -> Icons.AutoMirrored.Outlined.InsertDriveFile
     NodeActionCatalog.CONNECT -> Icons.Outlined.Link
     NodeActionCatalog.NOTES -> Icons.Outlined.Description
     NodeActionCatalog.MORE -> Icons.Outlined.MoreVert

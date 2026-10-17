@@ -17,11 +17,18 @@ data class IdeaNode(
     val kind: String,
     val name: String,
     val priority: Int,
-    val description: String,
-    val picUri: String?,
-    val createdAt: Long,
-    val x: Float,
-    val y: Float,
+    /**
+     * The node's notes — **a list, no limit**. Saeed's order: a node may carry any number of notes,
+     * images and files, and the card must not show their content, only how many there are.
+     */
+    val notes: List<String> = emptyList(),
+    /** Pictures, as paths inside the app's own storage. No limit. */
+    val pictures: List<String> = emptyList(),
+    /** Attached files, as paths inside the app's own storage. No limit. */
+    val files: List<String> = emptyList(),
+    val createdAt: Long = 0L,
+    val x: Float = 0f,
+    val y: Float = 0f,
     /**
      * A node the whole structure is organised around ("central node"). More than one is allowed:
      * every central node starts its own tree. Toggleable at any time.
@@ -52,9 +59,20 @@ data class IdeaNode(
 ) {
     /** The card's width in board units, clamped to something a finger can still grab. */
     val width: Float get() = if (w > 0f) w.coerceIn(StructureLayout.MIN_NODE_W, StructureLayout.MAX_NODE_W) else StructureLayout.NODE_W
-
     /** The card's height in board units. */
     val height: Float get() = if (h > 0f) h.coerceIn(StructureLayout.MIN_NODE_H, StructureLayout.MAX_NODE_H) else StructureLayout.NODE_H
+
+    /**
+     * The first note — for the places that need one line of text (the form, Details, the list).
+     * Everything else reads [notes] itself.
+     */
+    val description: String get() = notes.firstOrNull().orEmpty()
+
+    /** The first picture — kept so older code that shows one thumbnail keeps working. */
+    val picUri: String? get() = pictures.firstOrNull()
+
+    /** Everything the node carries, for the machine-readable view and the model layer. */
+    val attachmentCount: Int get() = notes.size + pictures.size + files.size
 }
 
 /**
@@ -110,7 +128,6 @@ data class LinkView(
     /** True when the link leaves [nodeId], false when it arrives at it. */
     val outgoing: Boolean,
 )
-
 /** A node together with part of its branch — what Copy / Cut / Duplicate / Paste move around. */
 data class NodeFragment(
     val rootId: String,
@@ -119,6 +136,14 @@ data class NodeFragment(
 ) {
     val isEmpty: Boolean get() = nodes.isEmpty()
 }
+
+/**
+ * The whole board at one instant: every node and every link.
+ *
+ * Redo is built on this (see [UndoStack]): the state right now is exactly what a Redo has to bring
+ * back, so no action has to hand-write a second closure for the redo direction.
+ */
+data class BoardSnapshot(val nodes: List<IdeaNode>, val links: List<NodeLink>)
 
 /** Nodes and links removed together, kept so one Undo can put all of it back. */
 data class RemovedBundle(
@@ -305,9 +330,85 @@ object NodeStore {
             "Node",
             "node updated: '" + stamped.name + "' (" + stamped.id + ") color=" + (stamped.color ?: "default") +
                 " size=" + stamped.width.toInt() + "x" + stamped.height.toInt() +
-                " notes=" + stamped.description.length + "ch hasPic=" + (stamped.picUri != null),
+                " notes=" + stamped.notes.size + " images=" + stamped.pictures.size +
+                " files=" + stamped.files.size,
         )
         return true
+    }
+
+    // ---- what a node carries: notes, images, files (no limit on any of them) --
+
+    /** Adds a note to a node. Empty text is refused. Returns true when it was added. */
+    fun addNote(context: Context, nodeId: String, text: String): Boolean {
+        val clean = text.trim()
+        val node = byId(nodeId) ?: return false
+        if (clean.isEmpty()) return false
+        updateNode(context, node.copy(notes = node.notes + clean))
+        AppLog.i("Node", "note added to '" + node.name + "' — now " + (node.notes.size + 1))
+        return true
+    }
+
+    /** Replaces one note in place. An empty text removes it. */
+    fun setNote(context: Context, nodeId: String, index: Int, text: String) {
+        val node = byId(nodeId) ?: return
+        if (index !in node.notes.indices) return
+        val next = node.notes.toMutableList()
+        val clean = text.trim()
+        if (clean.isEmpty()) next.removeAt(index) else next[index] = clean
+        updateNode(context, node.copy(notes = next))
+    }
+
+    fun removeNote(context: Context, nodeId: String, index: Int) {
+        val node = byId(nodeId) ?: return
+        if (index !in node.notes.indices) return
+        val next = node.notes.toMutableList()
+        next.removeAt(index)
+        updateNode(context, node.copy(notes = next))
+    }
+
+    /** Adds a picture the caller has already copied into the app's own storage. */
+    fun addPicture(context: Context, nodeId: String, path: String) {
+        val node = byId(nodeId) ?: return
+        if (path.isBlank()) return
+        updateNode(context, node.copy(pictures = node.pictures + path))
+        AppLog.i("Node", "image added to '" + node.name + "' — now " + (node.pictures.size + 1))
+    }
+
+    fun removePicture(context: Context, nodeId: String, index: Int) {
+        val node = byId(nodeId) ?: return
+        if (index !in node.pictures.indices) return
+        val next = node.pictures.toMutableList()
+        next.removeAt(index)
+        updateNode(context, node.copy(pictures = next))
+    }
+
+    fun addFile(context: Context, nodeId: String, path: String) {
+        val node = byId(nodeId) ?: return
+        if (path.isBlank()) return
+        updateNode(context, node.copy(files = node.files + path))
+        AppLog.i("Node", "file added to '" + node.name + "' — now " + (node.files.size + 1))
+    }
+
+    fun removeFile(context: Context, nodeId: String, index: Int) {
+        val node = byId(nodeId) ?: return
+        if (index !in node.files.indices) return
+        val next = node.files.toMutableList()
+        next.removeAt(index)
+        updateNode(context, node.copy(files = next))
+    }
+
+    /**
+     * Reads a string array out of a stored node, tolerating a missing key, a JSON null, and a single
+     * string written by an older build.
+     */
+    private fun readList(o: JSONObject, key: String): List<String> {
+        val array = o.optJSONArray(key) ?: return emptyList()
+        val out = ArrayList<String>(array.length())
+        for (i in 0 until array.length()) {
+            val value = array.optString(i)
+            if (value.isNotBlank()) out.add(value)
+        }
+        return out
     }
 
     /**
@@ -335,11 +436,15 @@ object NodeStore {
         out.appendLine("height: " + node.height.toInt() + " board units")
         out.appendLine("central: " + node.isRoot)
         out.appendLine("collapsed: " + node.collapsed)
-        out.appendLine("hasPicture: " + (node.picUri != null))
+        out.appendLine("images: " + node.pictures.size)
+        out.appendLine("files: " + node.files.size)
         out.appendLine("position: (" + node.x.toInt() + ", " + node.y.toInt() + ") board units, origin = (0, 0)")
         out.appendLine("created: " + node.createdAt)
         out.appendLine("updated: " + node.updatedAt)
-        out.appendLine("notes: " + node.description)
+        out.appendLine("notes: " + node.notes.size)
+        node.notes.forEachIndexed { i, note -> out.appendLine("note[" + i + "]: " + note) }
+        node.pictures.forEachIndexed { i, path -> out.appendLine("image[" + i + "]: " + path) }
+        node.files.forEachIndexed { i, path -> out.appendLine("file[" + i + "]: " + path) }
 
         val outs = linksOut(nodeId)
         out.appendLine("links out (" + outs.size + "):")
@@ -560,8 +665,18 @@ object NodeStore {
                         kind = if (o.has("kind")) o.optString("kind") else KIND_IDEA,
                         name = o.optString("name"),
                         priority = o.optInt("priority", 3),
-                        description = o.optString("description"),
-                        picUri = if (o.isNull("picUri")) null else o.optString("picUri"),
+                        // v0.12.0 replaced the single description / picUri with lists. An older node
+                        // loads with its description as its first note and its picture as its first
+                        // image, so nothing is lost and nothing has to be re-entered.
+                        notes = readList(o, "notes").ifEmpty {
+                            val single = o.optString("description")
+                            if (single.isNotBlank()) listOf(single) else emptyList()
+                        },
+                        pictures = readList(o, "pictures").ifEmpty {
+                            val single = if (o.isNull("picUri")) null else o.optString("picUri")
+                            if (single.isNullOrBlank()) emptyList() else listOf(single)
+                        },
+                        files = readList(o, "files"),
                         createdAt = o.optLong("createdAt"),
                         x = if (hasPosition) o.optDouble("x", 0.0).toFloat() else (i % 2) * MIGRATION_COL_W,
                         y = if (hasPosition) o.optDouble("y", 0.0).toFloat() else (i / 2) * MIGRATION_ROW_H,
@@ -650,7 +765,8 @@ object NodeStore {
         AppLog.i(
             "NodeStore",
             "node added: kind=" + node.kind + " name='" + node.name + "' priority=" + node.priority +
-                " pos=(" + node.x.toInt() + "," + node.y.toInt() + ") hasPic=" + (node.picUri != null) +
+                " pos=(" + node.x.toInt() + "," + node.y.toInt() + ") notes=" + node.notes.size +
+                " images=" + node.pictures.size + " files=" + node.files.size +
                 " total=" + items.size,
         )
     }
@@ -781,6 +897,21 @@ object NodeStore {
         AppLog.i("NodeStore", "node restored: '" + node.name + "' links=" + links.size)
     }
 
+    /**
+     * The whole board right now. Used by Redo (see [UndoStack]).
+     */
+    fun snapshot(): BoardSnapshot = BoardSnapshot(items.toList(), linkItems.toList())
+
+    /** Puts a snapshot back — every node and every link — and persists it. */
+    fun restoreSnapshot(context: Context, snapshot: BoardSnapshot) {
+        items.clear()
+        items.addAll(snapshot.nodes)
+        linkItems.clear()
+        linkItems.addAll(snapshot.links)
+        persist(context)
+        AppLog.i("NodeStore", "snapshot restored: " + snapshot.nodes.size + " node(s), " + snapshot.links.size + " link(s)")
+    }
+
     fun persist(context: Context) {
         try {
             val nodesArray = JSONArray()
@@ -790,8 +921,10 @@ object NodeStore {
                 o.put("kind", n.kind)
                 o.put("name", n.name)
                 o.put("priority", n.priority)
-                o.put("description", n.description)
-                o.put("picUri", n.picUri ?: JSONObject.NULL)
+                // v0.12.0: three lists, no limit on any of them.
+                o.put("notes", JSONArray(n.notes))
+                o.put("pictures", JSONArray(n.pictures))
+                o.put("files", JSONArray(n.files))
                 o.put("createdAt", n.createdAt)
                 o.put("x", n.x.toDouble())
                 o.put("y", n.y.toDouble())

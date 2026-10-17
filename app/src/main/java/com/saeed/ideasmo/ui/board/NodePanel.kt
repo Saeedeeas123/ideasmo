@@ -78,6 +78,7 @@ internal fun NodePanel(
     onClose: () -> Unit,
     onOpenLink: (NodeLink) -> Unit,
     onAddLink: () -> Unit,
+    onDuplicate: () -> Unit,
     onReorder: (NodeLink, Int) -> Unit,
     onAutoOrder: (String) -> Unit,
     onToggleRoot: () -> Unit,
@@ -392,6 +393,12 @@ internal fun NodePanel(
                                 modifier = Modifier.heightIn(min = Sizes.touchMin),
                             ) {
                                 Text(stringResource(R.string.node_add_link))
+                            }
+                            OutlinedButton(
+                                onClick = onDuplicate,
+                                modifier = Modifier.heightIn(min = Sizes.touchMin),
+                            ) {
+                                Text(stringResource(R.string.act_duplicate))
                             }
                             OutlinedButton(
                                 onClick = onDetails,

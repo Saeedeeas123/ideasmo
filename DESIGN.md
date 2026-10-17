@@ -587,3 +587,45 @@ no dependency where a Compose `Canvas` would do.
   something important when the node is mid-screen; does 6 columns keep the labels readable on his
   screen; is 70 % the right height for the sheet; and does the spread-out board (see below) look right
   or should the old arrangement be re-run.
+
+### v0.12.0 sign-off (2026-10-17)
+- **What a node carries became lists.** `IdeaNode.notes`, `.pictures` and `.files` (all `List<String>`,
+  no limit) replace the single `description` / `picUri`; the loader migrates an older node by turning
+  its description into its first note and its picture into its first image, so nothing is lost. New
+  store operations `addNote/setNote/removeNote`, `addPicture/removePicture`, `addFile/removeFile`;
+  `describe()` now prints the counts and every entry with its index.
+- **The card shows counts, never content** (`NodeCardBody`): small icon + number for links, notes,
+  images and files. That is also why his items 3 and 4 are one change — the counts that used to need a
+  list view now live on the node, so the list view could go.
+- **The collapse control can no longer hide** (his screenshot): it is the FIRST element of the card's
+  second row, 24 dp, so a narrow card cannot push it out, and the "+N hidden" badge is one compact
+  label at the end of the row.
+- **The box follows his order exactly** (`NodeActionCatalog.box`): Name · Child · Sibling · Connect ·
+  Note · Image · Files · Shape · Colour · Resize · Copy · Cut · Paste · Delete · Reattach · More.
+  `node.text` keeps its id but is labelled **Name**; a new `node.files` action was added; `Duplicate`
+  left the box (it is not in his list) and is offered from the node sheet instead, so nothing is lost.
+  Each cell can carry a **count badge** (Note, Image, Files, Connect, Child).
+- **Attachments UI** (`NodeAttachments.kt`): `NodeNotesDialog`, `NodeImagesDialog` (thumbnails) and
+  `NodeFilesDialog` list what is already there, delete, and add new — images through the system photo
+  picker, files through `OpenDocument` and `copyFileIntoAppStorage` (new `core/util/Files.kt`).
+- **The bottom bar is rebuilt to his layout**: [Fit to screen] [Undo] | [−] [zoom %] [+] | [Redo]
+  [View/Edit]. `BoardState.fitTo()` picks the zoom that shows every node; **Redo is new** and is built
+  from whole-board snapshots (`NodeStore.snapshot()/restoreSnapshot`) inside `UndoStack.undo/redo`, so
+  none of the fifteen existing undo call sites needed a second closure. **View mode** is read-only:
+  taps select nothing, nodes do not drag, no create/select controls, Undo/Redo disabled.
+- **Select nodes** (next to New node): Select mode where a tap toggles a node in or out of the
+  selection and a **drag on the empty board draws the selection window** (press = corner, drag, release
+  = select everything it touches) — no long press any more. Panning is disabled in Select mode so the
+  window can be drawn; pinch still zooms.
+- **Removed on his order**: the list view (`BoardListView.kt` deleted), the graph button, and the
+  Origin button, marker and setting. `BoardSpace`'s origin still exists internally because Arrange
+  anchors on it.
+- Verified how: `:app:testDebugUnitTest` **41/41 green** — NodeCatalogTest is 9 with a new contract
+  test that pins the box's exact order, the Name/Note/Files labels and the fact that Duplicate is in
+  the catalogue but not in the box; StructureLayoutTest 26; FragmentBuilderTest 6.
+  `:app:assembleDebug` **BUILD SUCCESSFUL with 0 Kotlin warnings** (two deprecated icons converted to
+  their AutoMirrored versions).
+- Not verified: the device. The specific things to look at: does a six-column box read well with the
+  new order; are the count badges legible; does the 24 dp collapse circle still feel tappable; do the
+  attachment dialogs read well with several notes; and does the selection window feel right without
+  the long press.

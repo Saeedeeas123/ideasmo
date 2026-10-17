@@ -3,7 +3,7 @@
 An idea processor for Android: capture an idea, give it structure, keep it in one place.
 Personal project of Saeed (`com.saeed.ideasmo`), built entirely on-device.
 
-**Current version: v0.11.0** (versionCode 11)
+**Current version: v0.12.0** (versionCode 12)
 
 ## What it is
 
@@ -83,7 +83,9 @@ DESIGN.md                    the design contract (tokens, screens, decisions, ho
 
 | v0.11.0 | **One board space** — a node's stored position is board units (dp at 100 %), so the auto-layout, the link lines, the resize handles and the action box all agree with the card on screen (v0.10.0 placed nodes at raw pixels while sizing cards in dp, which is what made the cards pile up, the links miss their nodes and the handles cluster); **the action box**: one rectangle above the node holding all sixteen actions in a 6-column grid, never scaling with the zoom; **the node sheet**: More opens a full-width rectangle over the bottom 70 % of the screen with the node itself pinned at its top; **standard link length**: every link after an Arrange is exactly one level gap, edge to edge, and a branch is slid clear of nodes that are not part of it; loose nodes are parked beside the whole-map arrangement |
 
-## Honest limits (v0.11.0)
+| v0.12.0 | **Nodes carry lists**: any number of **notes**, **images** and **files** (new action), each action showing its count, the card showing only small icons with counts — never the content; the collapse ⊖/⊕ moved to the start of the card row so a small card can no longer hide it; **Name** replaces Text; the box order is exactly Name · Child · Sibling · Connect · Note · Image · Files · Shape · Colour · Resize · Copy · Cut · Paste · Delete · Reattach · More (Duplicate moved to the node sheet); **the list and graph buttons are gone** (the board is the graph) and the toolbar is Fit · Undo | − % + | Redo · View/Edit; **View mode is read-only**; **Select nodes** next to New node — tap to add/remove, drag a window to select everything inside |
+
+## Honest limits (v0.12.0)
 
 - **Group** and **Schema** from the reference app are still not built: Schema is deferred on your
   instruction, and Group is waiting on one answer — is a group a *frame that holds* the selected

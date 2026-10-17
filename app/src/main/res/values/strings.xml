@@ -273,10 +273,11 @@
     <string name="help_origin_3">The Origin button brings the view back to it, wherever you have travelled.</string>
 
     <!-- v0.8.0 · the node action square (labels for the ids in NodeActionCatalog) -->
-    <string name="act_text">Text</string>
+    <string name="act_name">Name</string>
     <string name="act_image">Image</string>
+    <string name="act_files">Files</string>
     <string name="act_connect">Connect</string>
-    <string name="act_notes">Notes</string>
+    <string name="act_note">Note</string>
     <string name="act_more">More</string>
     <string name="act_copy">Copy</string>
     <string name="act_cut">Cut</string>
@@ -363,4 +364,29 @@
     <string name="fragment_with_sublinks">Its sub-links (%1$d deeper)</string>
     <string name="fragment_with_sublinks_detail">The whole branch below it. This includes its links.</string>
     <string name="fragment_no_links">This node points at nothing yet, so only it can travel.</string>
+    <!-- v0.12.0 · attachments (lists), modes, select, toolbar -->
+    <string name="att_notes_title">Notes (%1$d)</string>
+    <string name="att_images_title">Images (%1$d)</string>
+    <string name="att_files_title">Files (%1$d)</string>
+    <string name="att_none">Nothing here yet</string>
+    <string name="att_new_note">New note</string>
+    <string name="att_add_note">Add note</string>
+    <string name="att_add_image">Add image</string>
+    <string name="att_add_file">Add file</string>
+    <string name="att_remove">Remove</string>
+    <string name="att_image_broken">Image missing</string>
+    <string name="tool_fit">Fit to screen</string>
+    <string name="fit_done">Fitted to the screen</string>
+    <string name="tool_redo">Redo</string>
+    <string name="redo_nothing">Nothing to redo</string>
+    <string name="redone">Redone: %1$s</string>
+    <string name="mode_to_view">View mode</string>
+    <string name="mode_to_edit">Edit mode</string>
+    <string name="mode_view_on">View mode — the board is read-only</string>
+    <string name="mode_edit_on">Edit mode — everything is open</string>
+    <string name="select_nodes">Select nodes</string>
+    <string name="select_done">Done selecting</string>
+    <string name="select_hint">Tap nodes to add or remove them, or drag a window around several</string>
+    <string name="file_pick_failed">Could not store the file</string>
+    <string name="file_added">File added</string>
 </resources>

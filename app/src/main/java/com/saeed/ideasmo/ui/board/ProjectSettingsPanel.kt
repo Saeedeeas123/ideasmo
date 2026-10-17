@@ -66,7 +66,6 @@ internal fun ProjectSettingsPanel(
     spacing: LayoutSpacing,
     showLabels: Boolean,
     showMinimap: Boolean,
-    showOrigin: Boolean,
     rootCount: Int,
     hiddenCount: Int,
     onPattern: (BoardPattern) -> Unit,
@@ -75,7 +74,6 @@ internal fun ProjectSettingsPanel(
     onSpacing: (LayoutSpacing) -> Unit,
     onShowLabels: (Boolean) -> Unit,
     onShowMinimap: (Boolean) -> Unit,
-    onShowOrigin: (Boolean) -> Unit,
     onArrange: () -> Unit,
     onCollapseAll: () -> Unit,
     onExpandAll: () -> Unit,
@@ -261,14 +259,6 @@ internal fun ProjectSettingsPanel(
                         detail = stringResource(R.string.settings_minimap_detail),
                         checked = showMinimap,
                         onCheckedChange = onShowMinimap,
-                    )
-                }
-                item(key = "origin") {
-                    ToggleRow(
-                        title = stringResource(R.string.settings_origin),
-                        detail = stringResource(R.string.settings_origin_detail),
-                        checked = showOrigin,
-                        onCheckedChange = onShowOrigin,
                     )
                 }
 

@@ -1,6 +1,7 @@
 package com.saeed.ideasmo.core.model
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -40,15 +41,40 @@ class NodeCatalogTest {
     }
 
     @Test
-    fun theSquareHasFourBarsWithTheExpectedActions() {
-        // Top bar: what the node says. Left: clipboard and delete. Right: the branch.
-        // Bottom: style. The counts are part of the layout contract of the square.
-        assertEquals(5, NodeActionCatalog.byGroup(NodeActionGroup.Content).size)
-        assertEquals(4, NodeActionCatalog.byGroup(NodeActionGroup.Clipboard).size)
-        assertEquals(4, NodeActionCatalog.byGroup(NodeActionGroup.Branch).size)
-        assertEquals(3, NodeActionCatalog.byGroup(NodeActionGroup.Style).size)
+    fun theBoxShowsEveryActionInSaeedsOrder() {
+        // v0.12.0: the four bars became ONE box, and Saeed fixed its exact order:
+        // Name · Child · Sibling · Connect · Note · Image · Files · Shape · Colour · Resize ·
+        // Copy · Cut · Paste · Delete · Reattach · More.
+        val expected = listOf(
+            NodeActionCatalog.TEXT,
+            NodeActionCatalog.CHILD,
+            NodeActionCatalog.SIBLING,
+            NodeActionCatalog.CONNECT,
+            NodeActionCatalog.NOTES,
+            NodeActionCatalog.IMAGE,
+            NodeActionCatalog.FILES,
+            NodeActionCatalog.SHAPE,
+            NodeActionCatalog.COLOR,
+            NodeActionCatalog.RESIZE,
+            NodeActionCatalog.COPY,
+            NodeActionCatalog.CUT,
+            NodeActionCatalog.PASTE,
+            NodeActionCatalog.DELETE,
+            NodeActionCatalog.REATTACH,
+            NodeActionCatalog.MORE,
+        )
+        assertEquals("the box holds exactly these sixteen, in this order", expected, NodeActionCatalog.box.map { it.key })
+        // Duplicate is still in the catalogue (the node sheet offers it) but NOT in the box.
+        assertFalse(NodeActionCatalog.box.any { it.key == NodeActionCatalog.DUPLICATE })
+        assertNotNull(NodeActionCatalog.byKey(NodeActionCatalog.DUPLICATE))
+        // The label Saeed renamed: node.text is called Name, and the notes action is Note.
+        assertEquals("Name", NodeActionCatalog.byKey(NodeActionCatalog.TEXT)!!.label)
+        assertEquals("Note", NodeActionCatalog.byKey(NodeActionCatalog.NOTES)!!.label)
+        assertEquals("Files", NodeActionCatalog.byKey(NodeActionCatalog.FILES)!!.label)
+    }
 
-        // Every action belongs to exactly one bar.
+    @Test
+    fun everyActionBelongsToExactlyOneGroup() {
         val grouped = NodeActionGroup.values().sumOf { NodeActionCatalog.byGroup(it).size }
         assertEquals(NodeActionCatalog.all.size, grouped)
     }
@@ -121,8 +147,7 @@ class NodeCatalogTest {
             kind = "idea",
             name = "x",
             priority = 3,
-            description = "",
-            picUri = null,
+            notes = emptyList(),
             createdAt = 0L,
             x = 0f,
             y = 0f,

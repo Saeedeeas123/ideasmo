@@ -1,11 +1,14 @@
 package com.saeed.ideasmo.core.model
 
-/** The four bars of the node action square, in the order they are drawn. */
+/**
+ * The families the actions belong to. They still describe what an action is about, even though the
+ * box is now one flat row of sixteen.
+ */
 enum class NodeActionGroup(val key: String, val title: String, val detail: String) {
-    Content("content", "Content", "What the node says"),
-    Clipboard("clipboard", "Clipboard & delete", "Move the node around"),
+    Content("content", "Content", "What the node says and carries"),
     Branch("branch", "Branch", "What hangs off the node"),
     Style("style", "Style", "How the card looks"),
+    Clipboard("clipboard", "Clipboard & delete", "Move the node around"),
 }
 
 /**
@@ -14,10 +17,10 @@ enum class NodeActionGroup(val key: String, val title: String, val detail: Strin
  * [key] is the stable id, [label] is what the button says, and [description] is the
  * machine-readable explanation of what the action does **and which parameters it takes**.
  *
- * Why this exists as data rather than as buttons in a layout file: the four bars are generated
- * from this list, Help reads it, and the language-model layer that is planned for later gets a
- * complete, stable list of the app's node operations without anyone having to re-describe them.
- * Adding an action means adding one entry here.
+ * Why this exists as data rather than as buttons in a layout file: the action box is generated from
+ * this list, Help reads it, and the language-model layer that is planned for later gets a complete,
+ * stable list of the app's node operations without anyone having to re-describe them. Adding an
+ * action means adding one entry here.
  */
 data class NodeAction(
     val key: String,
@@ -28,12 +31,18 @@ data class NodeAction(
     val needsTargetNode: Boolean = false,
     /** True when the action changes the node/link structure (so it always offers Undo). */
     val mutatesStructure: Boolean = false,
+    /**
+     * True when the action has a place in the node's action box. Saeed fixed the box's exact order and
+     * set; anything outside it stays reachable from the node sheet, so no capability is lost.
+     */
+    val inBox: Boolean = true,
 )
 
 object NodeActionCatalog {
 
     const val TEXT = "node.text"
     const val IMAGE = "node.image"
+    const val FILES = "node.files"
     const val CONNECT = "node.connect"
     const val NOTES = "node.notes"
     const val MORE = "node.more"
@@ -52,65 +61,27 @@ object NodeActionCatalog {
     const val COLOR = "node.color"
     const val SHAPE = "node.shape"
 
+    /**
+     * Every node action, **in the order Saeed fixed for the box** (v0.12.0):
+     * Name · Child · Sibling · Connect · Note · Image · Files · Shape · Colour · Resize ·
+     * Copy · Cut · Paste · Delete · Reattach · More.
+     *
+     * `Duplicate` is deliberately NOT in the box (his list does not include it) but it stays in the
+     * catalogue, so it still exists — the node sheet offers it. Keys are stable ids: `node.text` is
+     * what he renamed to **Name**, and its id is unchanged so stored data and the model layer keep
+     * working.
+     */
     val all: List<NodeAction> = listOf(
-        // ---- top bar: what the node says ------------------------------------
         NodeAction(
-            TEXT, "Text", NodeActionGroup.Content,
-            "Rename the node. Parameter: name (string). Writes IdeaNode.name and stamps updatedAt.",
+            TEXT, "Name", NodeActionGroup.Content,
+            "Rename the node — its name is what the card shows. Parameter: name (string). Writes " +
+                "IdeaNode.name and stamps updatedAt. (This action used to be called Text.)",
         ),
-        NodeAction(
-            IMAGE, "Image", NodeActionGroup.Content,
-            "Attach, replace or remove the node's picture. Parameter: picture (an image from the " +
-                "system picker) or none. The file is copied into the app so it survives restarts; " +
-                "writes IdeaNode.picUri.",
-        ),
-        NodeAction(
-            CONNECT, "Connect", NodeActionGroup.Content,
-            "Start a new typed relation from this node: choose a type from LinkCatalog, then tap the " +
-                "target. Creates a NodeLink with a fresh id and appends it to the branch order.",
-            needsTargetNode = true, mutatesStructure = true,
-        ),
-        NodeAction(
-            NOTES, "Notes", NodeActionGroup.Content,
-            "Edit the node's notes — the free text behind the card's preview. Parameter: notes " +
-                "(string). Writes IdeaNode.description.",
-        ),
-        NodeAction(
-            MORE, "More", NodeActionGroup.Content,
-            "Open everything else about this node: the links that leave it and arrive at it, the " +
-                "branch order, the structure controls, and its machine-readable details (id, kind, " +
-                "coordinates, timestamps).",
-        ),
-
-        // ---- left bar: clipboard and delete ---------------------------------
-        NodeAction(
-            COPY, "Copy", NodeActionGroup.Clipboard,
-            "Copy this node onto the app clipboard, without its links. Paste puts it back wherever " +
-                "the view is at that moment.",
-        ),
-        NodeAction(
-            CUT, "Cut", NodeActionGroup.Clipboard,
-            "Copy this node onto the app clipboard and remove it from the board. Undo brings the " +
-                "node and all of its links back.",
-            mutatesStructure = true,
-        ),
-        NodeAction(
-            PASTE, "Paste", NodeActionGroup.Clipboard,
-            "Create a copy of the clipboard node at the centre of the current view, with a new id. " +
-                "Does nothing when the clipboard is empty.",
-            mutatesStructure = true,
-        ),
-        NodeAction(
-            DELETE, "Delete", NodeActionGroup.Clipboard,
-            "Remove the node and every link that touches it. Undo restores the node and its links.",
-            mutatesStructure = true,
-        ),
-
-        // ---- right bar: the branch ------------------------------------------
         NodeAction(
             CHILD, "Child", NodeActionGroup.Branch,
             "Create a new node and link it as a child of this one, then name it. Parameters: name " +
-                "(string), link type (defaults to LinkCatalog's neutral type).",
+                "(string), link type (defaults to LinkCatalog's neutral type). The box shows how many " +
+                "children the node already has.",
             mutatesStructure = true,
         ),
         NodeAction(
@@ -120,9 +91,64 @@ object NodeActionCatalog {
             mutatesStructure = true,
         ),
         NodeAction(
-            DUPLICATE, "Duplicate", NodeActionGroup.Branch,
-            "Create an unlinked copy of this node, offset slightly, keeping its name, notes, " +
-                "priority, colour, shape and size.",
+            CONNECT, "Connect", NodeActionGroup.Content,
+            "Start a new typed relation from this node: choose a type from LinkCatalog, then tap the " +
+                "target. Creates a NodeLink with a fresh id and appends it to the branch order. The box " +
+                "shows how many links the node already has.",
+            needsTargetNode = true, mutatesStructure = true,
+        ),
+        NodeAction(
+            NOTES, "Note", NodeActionGroup.Content,
+            "The node's notes — a LIST with no limit. The action shows how many there are; opening it " +
+                "lists them (read, edit, delete) and adds new ones. Writes IdeaNode.notes (a list of " +
+                "strings).",
+        ),
+        NodeAction(
+            IMAGE, "Image", NodeActionGroup.Content,
+            "The node's pictures — a LIST with no limit. The action shows how many there are; opening " +
+                "it shows the thumbnails, deletes them and adds new ones from the system picker. Each " +
+                "file is copied into the app so it survives restarts. Writes IdeaNode.pictures.",
+        ),
+        NodeAction(
+            FILES, "Files", NodeActionGroup.Content,
+            "Attach any kind of file to the node — a LIST with no limit (v0.12.0). The action shows how " +
+                "many are attached; opening it lists them, opens them, deletes them and adds new ones " +
+                "through the system document picker. Writes IdeaNode.files.",
+        ),
+        NodeAction(
+            SHAPE, "Shape", NodeActionGroup.Style,
+            "Change the card shape. Parameter: a shape key from NodeStyle.SHAPES (rounded, square, " +
+                "pill, cut corner). Writes IdeaNode.shape.",
+        ),
+        NodeAction(
+            COLOR, "Colour", NodeActionGroup.Style,
+            "Change the card colour. Parameter: a colour role from NodeStyle.COLORS, or none for the " +
+                "plain card. Roles only, so day/night and dynamic colour keep working.",
+        ),
+        NodeAction(
+            RESIZE, "Resize", NodeActionGroup.Style,
+            "Change the card size by dragging the eight handles on the card. Writes IdeaNode.w / h in " +
+                "board units; the board and the auto-layout both use them.",
+        ),
+        NodeAction(
+            COPY, "Copy", NodeActionGroup.Clipboard,
+            "Copy this node — and, if you choose, its links and its sub-links — onto the app clipboard.",
+        ),
+        NodeAction(
+            CUT, "Cut", NodeActionGroup.Clipboard,
+            "Copy this node onto the app clipboard and remove it from the board. Undo brings the node " +
+                "and all of its links back.",
+            mutatesStructure = true,
+        ),
+        NodeAction(
+            PASTE, "Paste", NodeActionGroup.Clipboard,
+            "Create a copy of the clipboard content at the centre of the current view, with new ids. " +
+                "Shown unavailable when the clipboard is empty.",
+            mutatesStructure = true,
+        ),
+        NodeAction(
+            DELETE, "Delete", NodeActionGroup.Clipboard,
+            "Remove the node and every link that touches it. Undo restores the node and its links.",
             mutatesStructure = true,
         ),
         NodeAction(
@@ -132,24 +158,22 @@ object NodeActionCatalog {
                 "its own subtree, so a branch can never be folded into itself.",
             needsTargetNode = true, mutatesStructure = true,
         ),
-
-        // ---- bottom bar: style ----------------------------------------------
         NodeAction(
-            RESIZE, "Resize", NodeActionGroup.Style,
-            "Change the card size. Parameter: size (one of NodeStyle.SIZES: small, normal, large, " +
-                "extra large). Writes IdeaNode.size; the board and the auto-layout both use it.",
+            MORE, "More", NodeActionGroup.Content,
+            "Open the node sheet: the node pinned at the top, its links out and in, the branch order, " +
+                "arrange, its machine-readable details and Duplicate.",
         ),
+        // ---- kept, but not in the box: his order for the box does not include it ----
         NodeAction(
-            COLOR, "Colour", NodeActionGroup.Style,
-            "Change the card colour. Parameter: a colour role from NodeStyle.COLORS, or none for the " +
-                "plain card. Roles only, so day/night and dynamic colour keep working.",
-        ),
-        NodeAction(
-            SHAPE, "Shape", NodeActionGroup.Style,
-            "Change the card shape. Parameter: a shape key from NodeStyle.SHAPES (rounded, square, " +
-                "pill, cut corner). Writes IdeaNode.shape.",
+            DUPLICATE, "Duplicate", NodeActionGroup.Branch,
+            "Create a copy of this node — and, if you choose, its links and its sub-links — offset " +
+                "slightly. Offered from the node sheet.",
+            mutatesStructure = true, inBox = false,
         ),
     )
+
+    /** The actions the node's action box shows, in his order. */
+    val box: List<NodeAction> = all.filter { it.inBox }
 
     private val byKey: Map<String, NodeAction> = all.associateBy { it.key }
 

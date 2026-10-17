@@ -45,6 +45,17 @@ import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.MyLocation
 import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.automirrored.outlined.Redo
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.FitScreen
+import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
+import androidx.compose.material.icons.outlined.Link
+import androidx.compose.material.icons.outlined.SelectAll
+import androidx.compose.material.icons.automirrored.outlined.StickyNote2
+import androidx.compose.material.icons.outlined.VisibilityOff
+import com.saeed.ideasmo.core.util.copyFileIntoAppStorage
+import kotlin.math.abs
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -143,8 +154,6 @@ private const val SHEET_HEIGHT_FRACTION = 0.70f
 private const val MINIMAP_LINGER_MS = 900L
 private const val MINIMAP_W = 200
 private const val MINIMAP_H = 140
-
-private enum class ViewMode { Board, List }
 
 /** Which full-screen panel is open. Only one at a time — a panel always covers the board. */
 private sealed interface Panel {
@@ -260,9 +269,31 @@ private class BoardState {
      * centring a node on the whole viewport would hide it behind the sheet. This puts it in the
      * middle of what is still visible.
      */
-    fun centreOnWorldBand(wx: Float, wy: Float, bandHeightPx: Float) {
+        fun centreOnWorldBand(wx: Float, wy: Float, bandHeightPx: Float) {
         offsetX = viewportW / 2f - wx * density * scale
         offsetY = bandHeightPx / 2f - wy * density * scale
+    }
+
+    /**
+     * Fit to screen (Saeed's v0.12.0 toolbar): choose the zoom that shows every node and centre the
+     * map in the viewport. An empty board just resets to 100 %.
+     */
+    fun fitTo(nodes: List<IdeaNode>, paddingPx: Float = 0f) {
+        if (nodes.isEmpty()) {
+            resetView(nodes)
+            return
+        }
+        val minX = nodes.minOf { it.x }
+        val maxX = nodes.maxOf { it.x + StructureLayout.widthOf(it) }
+        val minY = nodes.minOf { it.y }
+        val maxY = nodes.maxOf { it.y + StructureLayout.heightOf(it) }
+        val spanX = ((maxX - minX) * density).coerceAtLeast(1f)
+        val spanY = ((maxY - minY) * density).coerceAtLeast(1f)
+        val pad = if (paddingPx > 0f) paddingPx else minOf(viewportW, viewportH) * 0.08f
+        val usableW = (viewportW - pad * 2f).coerceAtLeast(1f)
+        val usableH = (viewportH - pad * 2f).coerceAtLeast(1f)
+        scale = minOf(usableW / spanX, usableH / spanY).coerceIn(MIN_SCALE, MAX_SCALE)
+        centreOnWorld((minX + maxX) / 2f, (minY + maxY) / 2f)
     }
 
     fun screenRectOf(node: IdeaNode): Rect {
@@ -299,15 +330,16 @@ fun BoardScreen(
     val spacing = LayoutSpacing.fromKey(BoardPrefs.spacingKey)
     val showLabels = BoardPrefs.showLinkLabels
     val showMinimapPref = BoardPrefs.showMinimap
-    val showOrigin = BoardPrefs.showOrigin
-
     val allNodes = NodeStore.nodesOf(kind)
     val hidden = NodeStore.hiddenIds()
     val nodes = allNodes.filter { it.id !in hidden }
     val nodeIds = nodes.map { it.id }.toSet()
     val links = NodeStore.links.filter { it.fromId in nodeIds && it.toId in nodeIds }
-
-    var viewMode by remember { mutableStateOf(ViewMode.Board) }
+    // Two modes (Saeed's v0.12.0 order): Edit where everything is open, View where nothing can be
+    // changed and the board is only for looking at.
+    var editing by remember { mutableStateOf(true) }
+    // Select mode: tap nodes to toggle them in or out, or drag a window around several of them.
+    var selectMode by remember { mutableStateOf(false) }
     var formOpen by remember { mutableStateOf(false) }
     var nodeName by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
@@ -335,29 +367,34 @@ fun BoardScreen(
 
     // Dialogs: one at a time.
     var textDialogFor by remember { mutableStateOf<String?>(null) }
-    var notesDialogFor by remember { mutableStateOf<String?>(null) }
     var detailsFor by remember { mutableStateOf<String?>(null) }
-    var pictureDialogFor by remember { mutableStateOf<String?>(null) }
+    // Attachments (v0.12.0): a node carries LISTS of notes, pictures and files, and each action opens
+    // what is already there plus a way to add more.
+    var notesFor by remember { mutableStateOf<String?>(null) }
+    var imagesFor by remember { mutableStateOf<String?>(null) }
+    var filesDialogFor by remember { mutableStateOf<String?>(null) }
     var imageTarget by remember { mutableStateOf<String?>(null) }
+    var fileTarget by remember { mutableStateOf<String?>(null) }
     var fragmentRequest by remember { mutableStateOf<FragmentRequest?>(null) }
-
     fun clearModes() {
         tool = NodeTool.None
         notice = null
     }
-
     // ---- back is a step, not an exit ---------------------------------------
     BackHandler(
-        enabled = fragmentRequest != null || textDialogFor != null || notesDialogFor != null ||
-            detailsFor != null || pictureDialogFor != null || panel != null || connectFrom != null ||
-            reattachFrom != null || tool != NodeTool.None || formOpen || selection.isNotEmpty(),
+        enabled = fragmentRequest != null || textDialogFor != null || notesFor != null ||
+            imagesFor != null || filesDialogFor != null ||
+            detailsFor != null || panel != null || connectFrom != null ||
+            reattachFrom != null || tool != NodeTool.None || formOpen || selection.isNotEmpty() ||
+            selectMode,
     ) {
         when {
             fragmentRequest != null -> fragmentRequest = null
             textDialogFor != null -> textDialogFor = null
-            notesDialogFor != null -> notesDialogFor = null
+            notesFor != null -> notesFor = null
+            imagesFor != null -> imagesFor = null
+            filesDialogFor != null -> filesDialogFor = null
             detailsFor != null -> detailsFor = null
-            pictureDialogFor != null -> pictureDialogFor = null
             panel != null -> panel = null
             connectFrom != null -> {
                 connectFrom = null
@@ -404,6 +441,29 @@ fun BoardScreen(
         }
     }
 
+    val pickFile = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        val target = fileTarget
+        if (uri == null) {
+            AppLog.i("Board", "file pick cancelled")
+            fileTarget = null
+        } else if (target != null) {
+            val name = context.contentResolver
+                .query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
+                ?.use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getString(0) else null
+                }
+            val path = copyFileIntoAppStorage(context, uri, name)
+            fileTarget = null
+            if (path == null) {
+                notice = context.getString(R.string.file_pick_failed)
+            } else {
+                NodeStore.addFile(context, target, path)
+                notice = context.getString(R.string.file_added)
+            }
+        }
+    }
     val pickImage = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
     ) { uri ->
@@ -416,7 +476,8 @@ fun BoardScreen(
             if (path == null) {
                 notice = context.getString(R.string.pic_pick_failed)
             } else if (target != null) {
-                NodeStore.byId(target)?.let { node -> NodeStore.updateNode(context, node.copy(picUri = path)) }
+                // v0.12.0: pictures are a list — every pick ADDS one instead of replacing.
+                NodeStore.addPicture(context, target, path)
                 imageTarget = null
                 notice = context.getString(R.string.picture_updated)
             } else {
@@ -464,8 +525,8 @@ fun BoardScreen(
                     kind = kind,
                     name = trimmed,
                     priority = priority,
-                    description = description.trim(),
-                    picUri = picPath,
+                    notes = if (description.trim().isEmpty()) emptyList() else listOf(description.trim()),
+                    pictures = picPath?.let { listOf(it) } ?: emptyList(),
                     createdAt = now,
                     x = wx,
                     y = wy,
@@ -486,7 +547,19 @@ fun BoardScreen(
 
     // ---- tapping a node ----------------------------------------------------
 
-    val onNodeTap: (IdeaNode) -> Unit = { node ->
+    val onNodeTap: (IdeaNode) -> Unit = onTap@{ node ->
+        // View mode is for looking only: a tap selects nothing (Saeed's v0.12.0 rule).
+        if (!editing) {
+            AppLog.i("Board", "tap ignored in view mode: " + node.name)
+            return@onTap
+        }
+        // Select mode: a tap adds or removes this node, exactly like long-press did before.
+        if (selectMode) {
+            selection = if (selection.contains(node.id)) selection - node.id else selection + node.id
+            tool = NodeTool.None
+            AppLog.i("Board", "select mode toggled '" + node.name + "', selection: " + selection.size)
+            return@onTap
+        }
         val reattach = reattachFrom
         val from = connectFrom
         if (reattach != null) {
@@ -699,15 +772,9 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
         AppLog.i("Node", "action " + key + " on '" + node.name + "' (" + node.id + ")")
         when (key) {
             NodeActionCatalog.TEXT -> textDialogFor = node.id
-            NodeActionCatalog.NOTES -> notesDialogFor = node.id
-            NodeActionCatalog.IMAGE -> {
-                if (node.picUri == null) {
-                    imageTarget = node.id
-                    pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                } else {
-                    pictureDialogFor = node.id
-                }
-            }
+            NodeActionCatalog.NOTES -> notesFor = node.id
+            NodeActionCatalog.IMAGE -> imagesFor = node.id
+            NodeActionCatalog.FILES -> filesDialogFor = node.id
 
             NodeActionCatalog.CONNECT -> panel = Panel.Picker(node.id)
             NodeActionCatalog.MORE -> {
@@ -839,16 +906,10 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                 .padding(inner),
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                if (viewMode == ViewMode.List) {
-                    BoardListView(
-                        nodes = nodes,
-                        selectedId = selectedId,
-                        onSelect = onNodeTap,
-                        onOpenLink = { link -> panel = Panel.LinkInfo(link.id) },
-                        onGoToBoard = { viewMode = ViewMode.Board },
-                        modifier = Modifier.weight(1f),
-                    )
-                } else {
+                // v0.12.0: the list view and the graph button are gone — the board IS the graph, and
+                // relations are read from the node's own counts. `run` keeps the existing layout
+                // untouched now that the choice disappeared.
+                run {
                     val scheme = MaterialTheme.colorScheme
                     val boardColors = boardColorsOf(palette)
 
@@ -922,14 +983,6 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                                     offsetY = board.offsetY,
                                     colors = boardColors,
                                 )
-                                if (showOrigin) {
-                                    drawBoardOrigin(
-                                        scale = board.scale,
-                                        offsetX = board.offsetX,
-                                        offsetY = board.offsetY,
-                                        colors = boardColors,
-                                    )
-                                }
                                 edgeDraws.firstOrNull { it.first.linkId == selectedLinkId }?.let { (edge, color) ->
                                     drawLine(
                                         color = color.copy(alpha = 0.35f),
@@ -942,13 +995,15 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                                     drawTypedLink(edge.start, edge.end, edge.type, color, board.scale)
                                 }
                             }
-                            .pointerInput(kind) {
+                            .pointerInput(kind, selectMode) {
                                 detectTransformGestures { centroid, pan, zoom, _ ->
                                     if (!board.draggingNode && bandState.value.first == null) {
                                         if (zoom != 1f) {
                                             board.setScaleAround(board.scale * zoom, centroid.x, centroid.y)
                                         }
-                                        if (pan != Offset.Zero) {
+                                        // In Select mode one finger draws the selection window, so
+                                        // the board must not pan with it; pinching still zooms.
+                                        if (pan != Offset.Zero && !selectMode) {
                                             board.panBy(pan.x, pan.y)
                                         }
                                     }
@@ -972,16 +1027,17 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                                     }
                                 }
                             }
-                            .pointerInput(kind) {
-                                // Long-press on the empty board starts a rubber band. It consumes the
-                                // drag, so the board does not pan while the band is being drawn.
+                            .pointerInput(kind, selectMode) {
+                                // v0.12.0 Select mode: press on the empty board, drag, release — every
+                                // node the window touches is selected. No long press needed any more.
+                                // Outside Select mode a drag is a pan, so this does nothing.
                                 awaitEachGesture {
                                     val down = awaitFirstDown(requireUnconsumed = false)
+                                    if (!selectMode) return@awaitEachGesture
                                     val onNode = nodesState.value.any { board.screenRectOf(it).contains(down.position) }
                                     if (onNode) return@awaitEachGesture
-                                    val longPress = awaitLongPressOrCancellation(down.id) ?: return@awaitEachGesture
-                                    bandStart = longPress.position
-                                    bandNow = longPress.position
+                                    bandStart = down.position
+                                    bandNow = down.position
                                     drag(down.id) { change ->
                                         bandNow = change.position
                                         change.consume()
@@ -990,7 +1046,9 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                                     val b = bandNow
                                     bandStart = null
                                     bandNow = null
-                                    if (a != null && b != null) {
+                                    if (a != null && b != null &&
+                                        (abs(a.x - b.x) > 12f || abs(a.y - b.y) > 12f)
+                                    ) {
                                         val band = Rect(
                                             min(a.x, b.x),
                                             min(a.y, b.y),
@@ -1007,7 +1065,7 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                                         } else {
                                             null
                                         }
-                                        AppLog.i("Board", "rubber band selected " + hit.size + " node(s)")
+                                        AppLog.i("Board", "select window picked " + hit.size + " node(s)")
                                     }
                                 }
                             }
@@ -1083,6 +1141,7 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                                         }
                                     },
                                     onDragEnd = { NodeStore.persist(context) },
+                                    editable = editing,
                                 )
                             }
                         }
@@ -1103,7 +1162,9 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                             )
                         }
 
-                        if (formOpen) {
+                        if (!editing) {
+                            // View mode: the board is only for looking at. No create, no select.
+                        } else if (formOpen) {
                             NodeFormPanel(
                                 modifier = Modifier.align(Alignment.BottomCenter),
                                 name = nodeName,
@@ -1125,17 +1186,47 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                                 onCancel = { formOpen = false },
                                 onCreate = createNode,
                             )
-                        } else if (nodes.isEmpty()) {
-                            NewNodeCentre(
+} else if (nodes.isEmpty()) {
+                            Column(
                                 modifier = Modifier.align(Alignment.Center),
-                                onClick = { formOpen = true },
-                            )
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.board_hint),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Spacer(Modifier.height(Spacing.l))
+                                NodeToolsRow(
+                                    selectMode = selectMode,
+                                    onNew = { formOpen = true },
+                                    onSelect = {
+                                        selectMode = !selectMode
+                                        selection = emptyList()
+                                        notice = if (selectMode) {
+                                            context.getString(R.string.select_hint)
+                                        } else {
+                                            null
+                                        }
+                                    },
+                                )
+                            }
                         } else {
-                            NewNodePill(
+                            NodeToolsRow(
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
                                     .padding(bottom = Spacing.l),
-                                onClick = { formOpen = true },
+                                selectMode = selectMode,
+                                onNew = { formOpen = true },
+                                onSelect = {
+                                    selectMode = !selectMode
+                                    selection = emptyList()
+                                    notice = if (selectMode) {
+                                        context.getString(R.string.select_hint)
+                                    } else {
+                                        null
+                                    }
+                                },
                             )
                         }
                     }
@@ -1192,29 +1283,33 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                     color = MaterialTheme.colorScheme.surfaceVariant,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Row(
+                    // Saeed's layout for v0.12.0: the zoom controls own the centre, Undo and Redo sit
+                    // either side of them, then Fit to screen next to Undo and View/Edit next to Redo.
+                    // List view, graph view and Origin are gone — the board IS the graph.
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 56.dp)
                             .padding(horizontal = Spacing.s),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
-                        ToolButton(
-                            icon = Icons.Outlined.AccountTree,
-                            contentDescription = stringResource(R.string.tool_graph),
-                            active = viewMode == ViewMode.Board,
-                            onClick = { viewMode = ViewMode.Board },
-                        )
-
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            val onBoard = viewMode == ViewMode.Board
+                        Row(
+                            modifier = Modifier.align(Alignment.CenterStart),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            ToolButton(
+                                icon = Icons.Outlined.FitScreen,
+                                contentDescription = stringResource(R.string.tool_fit),
+                                onClick = {
+                                    board.fitTo(NodeStore.nodesOf(kind))
+                                    notice = context.getString(R.string.fit_done)
+                                },
+                            )
                             ToolButton(
                                 icon = Icons.AutoMirrored.Outlined.Undo,
                                 contentDescription = stringResource(R.string.tool_undo),
-                                enabled = UndoStack.canUndo,
+                                enabled = editing && UndoStack.canUndo,
                                 onClick = {
-                                    val label = UndoStack.undo()
+                                    val label = UndoStack.undo(context)
                                     notice = if (label == null) {
                                         context.getString(R.string.undo_nothing)
                                     } else {
@@ -1222,19 +1317,16 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                                     }
                                 },
                             )
-                            ToolButton(
-                                icon = Icons.Outlined.Adjust,
-                                contentDescription = stringResource(R.string.tool_origin),
-                                enabled = onBoard,
-                                onClick = {
-                                    board.centreOnWorld(BoardSpace.ORIGIN_X, BoardSpace.ORIGIN_Y)
-                                    notice = context.getString(R.string.origin_here)
-                                },
-                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.align(Alignment.Center),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             ToolButton(
                                 icon = Icons.Outlined.Remove,
                                 contentDescription = stringResource(R.string.cd_zoom_out),
-                                enabled = onBoard && board.scale > MIN_SCALE,
+                                enabled = board.scale > MIN_SCALE,
                                 onClick = {
                                     board.setScaleAround(
                                         board.scale - zoomStepAt(board.scale),
@@ -1249,7 +1341,7 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(Radius.small))
-                                    .clickable(enabled = onBoard) {
+                                    .clickable {
                                         board.resetView(NodeStore.nodesOf(kind))
                                         notice = context.getString(R.string.view_reset)
                                     }
@@ -1258,7 +1350,7 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                             ToolButton(
                                 icon = Icons.Outlined.Add,
                                 contentDescription = stringResource(R.string.cd_zoom_in),
-                                enabled = onBoard && board.scale < MAX_SCALE,
+                                enabled = board.scale < MAX_SCALE,
                                 onClick = {
                                     board.setScaleAround(
                                         board.scale + zoomStepAt(board.scale),
@@ -1269,17 +1361,48 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                             )
                         }
 
-                        ToolButton(
-                            icon = Icons.AutoMirrored.Outlined.FormatListBulleted,
-                            contentDescription = stringResource(R.string.tool_list),
-                            active = viewMode == ViewMode.List,
-                            onClick = { viewMode = ViewMode.List },
-                        )
+                        Row(
+                            modifier = Modifier.align(Alignment.CenterEnd),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            ToolButton(
+                                icon = Icons.AutoMirrored.Outlined.Redo,
+                                contentDescription = stringResource(R.string.tool_redo),
+                                enabled = editing && UndoStack.canRedo,
+                                onClick = {
+                                    val label = UndoStack.redo(context)
+                                    notice = if (label == null) {
+                                        context.getString(R.string.redo_nothing)
+                                    } else {
+                                        context.getString(R.string.redone, label)
+                                    }
+                                },
+                            )
+                            ToolButton(
+                                icon = if (editing) Icons.Outlined.VisibilityOff else Icons.Outlined.Edit,
+                                contentDescription = stringResource(
+                                    if (editing) R.string.mode_to_view else R.string.mode_to_edit,
+                                ),
+                                active = !editing,
+                                onClick = {
+                                    editing = !editing
+                                    if (!editing) {
+                                        selection = emptyList()
+                                        selectMode = false
+                                        tool = NodeTool.None
+                                        formOpen = false
+                                    }
+                                    notice = context.getString(
+                                        if (editing) R.string.mode_edit_on else R.string.mode_view_on,
+                                    )
+                                },
+                            )
+                        }
                     }
                 }
             }
 
-            // ---- the node action square: four bars around the single selected node ----
+            // ---- the node action box: one rectangle above the single selected node ----
             val barsNode = selectedId?.let { NodeStore.byId(it) }
             if (barsNode != null &&
                 !formOpen &&
@@ -1287,11 +1410,12 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                 connectFrom == null &&
                 reattachFrom == null &&
                 textDialogFor == null &&
-                notesDialogFor == null &&
+                notesFor == null &&
+                imagesFor == null &&
                 detailsFor == null &&
-                pictureDialogFor == null &&
+                filesDialogFor == null &&
                 fragmentRequest == null &&
-                viewMode == ViewMode.Board &&
+                editing &&
                 !hidden.contains(barsNode.id)
             ) {
                 val nodeW = StructureLayout.widthOf(barsNode)
@@ -1302,6 +1426,8 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                 val heightPx = nodeH * board.density * board.scale
                 NodeActionBox(
                     node = barsNode,
+                    linkCount = NodeStore.linksOf(barsNode.id).size,
+                    childCount = NodeStore.childrenOf(barsNode.id).size,
                     centreX = centreX,
                     nodeTopPx = board.worldToScreenY(barsNode.y),
                     nodeBottomPx = board.worldToScreenY(barsNode.y + nodeH),
@@ -1372,6 +1498,9 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                         onClose = { panel = null },
                         onOpenLink = { link -> panel = Panel.LinkInfo(link.id) },
                         onAddLink = { panel = Panel.Picker(node.id) },
+                        onDuplicate = {
+                            runFragmentAction(NodeActionCatalog.DUPLICATE, listOf(node.id), true, false)
+                        },
                         onReorder = { link, delta -> NodeStore.reorderLink(context, link.id, delta) },
                         onAutoOrder = { mode ->
                             NodeStore.autoOrder(context, node.id, mode)
@@ -1473,7 +1602,6 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                     spacing = spacing,
                     showLabels = showLabels,
                     showMinimap = showMinimapPref,
-                    showOrigin = showOrigin,
                     rootCount = NodeStore.rootIds(kind).size,
                     hiddenCount = hidden.size,
                     onPattern = { BoardPrefs.setPattern(context, it.key) },
@@ -1482,7 +1610,6 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                     onSpacing = { BoardPrefs.setSpacing(context, it.key) },
                     onShowLabels = { BoardPrefs.setShowLinkLabels(context, it) },
                     onShowMinimap = { BoardPrefs.setShowMinimap(context, it) },
-                    onShowOrigin = { BoardPrefs.setShowOrigin(context, it) },
                     onArrange = arrangeNow,
                     onCollapseAll = {
                         NodeStore.setCollapsedAll(context, true)
@@ -1514,16 +1641,42 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                 )
             }
 
-            val notesNode = notesDialogFor?.let { NodeStore.byId(it) }
+            val notesNode = notesFor?.let { NodeStore.byId(it) }
             if (notesNode != null) {
                 NodeNotesDialog(
-                    initial = notesNode.description,
-                    onSave = { text ->
-                        NodeStore.updateNode(context, notesNode.copy(description = text))
+                    node = notesNode,
+                    onAdd = { text ->
+                        NodeStore.addNote(context, notesNode.id, text)
                         notice = context.getString(R.string.notes_saved)
-                        notesDialogFor = null
                     },
-                    onDismiss = { notesDialogFor = null },
+                    onRemove = { index -> NodeStore.removeNote(context, notesNode.id, index) },
+                    onDismiss = { notesFor = null },
+                )
+            }
+            val imagesNode = imagesFor?.let { NodeStore.byId(it) }
+            if (imagesNode != null) {
+                NodeImagesDialog(
+                    node = imagesNode,
+                    onAdd = {
+                        imageTarget = imagesNode.id
+                        pickImage.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                        )
+                    },
+                    onRemove = { index -> NodeStore.removePicture(context, imagesNode.id, index) },
+                    onDismiss = { imagesFor = null },
+                )
+            }
+            val filesNode = filesDialogFor?.let { NodeStore.byId(it) }
+            if (filesNode != null) {
+                NodeFilesDialog(
+                    node = filesNode,
+                    onAdd = {
+                        fileTarget = filesNode.id
+                        pickFile.launch(arrayOf("*/*"))
+                    },
+                    onRemove = { index -> NodeStore.removeFile(context, filesNode.id, index) },
+                    onDismiss = { filesDialogFor = null },
                 )
             }
 
@@ -1537,23 +1690,6 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                         notice = context.getString(R.string.details_copied)
                     },
                     onDismiss = { detailsFor = null },
-                )
-            }
-
-            val pictureNode = pictureDialogFor?.let { NodeStore.byId(it) }
-            if (pictureNode != null) {
-                NodePictureDialog(
-                    onReplace = {
-                        pictureDialogFor = null
-                        imageTarget = pictureNode.id
-                        pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                    },
-                    onRemove = {
-                        NodeStore.updateNode(context, pictureNode.copy(picUri = null))
-                        pictureDialogFor = null
-                        notice = context.getString(R.string.picture_removed)
-                    },
-                    onDismiss = { pictureDialogFor = null },
                 )
             }
 
@@ -1618,8 +1754,7 @@ private fun createLinkedNodeIn(
             kind = kind,
             name = context.getString(R.string.node_new_default),
             priority = 3,
-            description = "",
-            picUri = null,
+            notes = emptyList(),
             createdAt = now,
             x = reference.x + StructureLayout.widthOf(reference) + 60f,
             y = reference.y + StructureLayout.heightOf(reference) + 24f,
@@ -1796,42 +1931,6 @@ private fun LinkLabelChip(
 }
 
 @Composable
-private fun NewNodeCentre(modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(
-            text = stringResource(R.string.new_node),
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(Spacing.m))
-        Box(
-            modifier = Modifier
-                .size(72.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primary)
-                .clickable(onClick = onClick),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.Add,
-                contentDescription = stringResource(R.string.cd_new_node),
-                tint = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.size(Sizes.iconTile),
-            )
-        }
-        Spacer(Modifier.height(Spacing.l))
-        Text(
-            text = stringResource(R.string.board_hint),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
-
-@Composable
 private fun NewNodePill(modifier: Modifier = Modifier, onClick: () -> Unit) {
     FilledTonalButton(
         onClick = onClick,
@@ -1844,6 +1943,45 @@ private fun NewNodePill(modifier: Modifier = Modifier, onClick: () -> Unit) {
         )
         Spacer(Modifier.width(Spacing.s))
         Text(stringResource(R.string.new_node))
+    }
+}
+
+/**
+ * The two board-level controls, side by side (Saeed's v0.12.0 order): **New node** and
+ * **Select nodes**.
+ *
+ * Select nodes turns on Select mode, where both of his ways of choosing work: tapping a node adds or
+ * removes it, and dragging a window around several of them selects all of them at once.
+ */
+@Composable
+private fun NodeToolsRow(
+    modifier: Modifier = Modifier,
+    selectMode: Boolean,
+    onNew: () -> Unit,
+    onSelect: () -> Unit,
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(Spacing.s),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        NewNodePill(onClick = onNew)
+        FilledTonalButton(
+            onClick = onSelect,
+            modifier = Modifier.heightIn(min = Sizes.touchMin),
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.SelectAll,
+                contentDescription = null,
+                modifier = Modifier.size(Sizes.iconSm),
+            )
+            Spacer(Modifier.width(Spacing.s))
+            Text(
+                text = stringResource(
+                    if (selectMode) R.string.select_done else R.string.select_nodes,
+                ),
+            )
+        }
     }
 }
 
@@ -1866,6 +2004,7 @@ private fun BoardNode(
     onLongPress: () -> Unit,
     onToggleCollapse: () -> Unit,
     onDragEnd: () -> Unit,
+    editable: Boolean = true,
 ) {
     val linkCount = NodeStore.linksOf(node.id).size
     val density = LocalDensity.current
@@ -1921,6 +2060,8 @@ private fun BoardNode(
                     // store because the gesture coroutine outlives recomposition.
                     // The finger moves in screen pixels: divide by the scale AND by the density to
                     // land in board units, otherwise the node runs away from the finger.
+                    // View mode does not move anything (Saeed's v0.12.0 rule).
+                    if (!editable) return@detectDragGestures
                     moveIds.forEach { id ->
                         val current = NodeStore.byId(id) ?: return@forEach
                         NodeStore.move(
@@ -1985,43 +2126,12 @@ internal fun NodeCardBody(
     }
     Spacer(Modifier.height(Spacing.s))
     Row(verticalAlignment = Alignment.CenterVertically) {
-        (1..5).forEach { level ->
-            Box(
-                modifier = Modifier
-                    .padding(end = Spacing.xs)
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(
-                        if (level <= node.priority) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.outline
-                        },
-                    ),
-            )
-        }
-        Spacer(Modifier.width(Spacing.s))
-        if (linkCount > 0) {
-            Text(
-                text = linkCount.toString(),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.primary,
-            )
-        }
-        if (hiddenBelow > 0) {
-            Spacer(Modifier.width(Spacing.s))
-            Text(
-                text = stringResource(R.string.node_hidden_badge, hiddenBelow),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.tertiary,
-            )
-        }
-        Spacer(Modifier.weight(1f))
-        // The collapse control lives on the card: ⊖ gathers the branch, ⊕ opens it again.
+        // The collapse control comes FIRST: on a small card the plus/minus used to be pushed out of
+        // the card and disappeared (Saeed's v0.12.0 report). Nothing after it can squeeze it away.
         if (onToggleCollapse != null && (childCount > 0 || node.collapsed)) {
             Box(
                 modifier = Modifier
-                    .size(28.dp)
+                    .size(24.dp)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.surface)
                     .border(
@@ -2039,19 +2149,91 @@ internal fun NodeCardBody(
                         childCount,
                     ),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp),
+                    modifier = Modifier.size(16.dp),
                 )
             }
+            Spacer(Modifier.width(Spacing.xs))
+        }
+        (1..5).forEach { level ->
+            Box(
+                modifier = Modifier
+                    .padding(end = Spacing.xs)
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (level <= node.priority) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.outline
+                        },
+                    ),
+            )
+        }
+        Spacer(Modifier.width(Spacing.xs))
+        // What the node carries — counts with a small icon, never the content itself. A node may hold
+        // any number of notes, images, files and links (Saeed's v0.12.0 order).
+        if (linkCount > 0) {
+            CountBadge(
+                icon = Icons.Outlined.Link,
+                count = linkCount,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        }
+        if (node.notes.isNotEmpty()) {
+            CountBadge(
+                icon = Icons.AutoMirrored.Outlined.StickyNote2,
+                count = node.notes.size,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (node.pictures.isNotEmpty()) {
+            CountBadge(
+                icon = Icons.Outlined.Image,
+                count = node.pictures.size,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (node.files.isNotEmpty()) {
+            CountBadge(
+                icon = Icons.AutoMirrored.Outlined.InsertDriveFile,
+                count = node.files.size,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Spacer(Modifier.weight(1f))
+        if (hiddenBelow > 0) {
+            Text(
+                text = stringResource(R.string.node_hidden_badge, hiddenBelow),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.tertiary,
+                maxLines = 1,
+            )
         }
     }
-    if (node.description.isNotBlank()) {
-        Spacer(Modifier.height(Spacing.s))
+}
+
+/** One "icon + number" badge on a card: how many of something the node carries. */
+@Composable
+private fun CountBadge(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    count: Int,
+    tint: androidx.compose.ui.graphics.Color,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(end = Spacing.xs),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(13.dp),
+        )
         Text(
-            text = node.description,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
+            text = count.toString(),
+            style = MaterialTheme.typography.labelSmall,
+            color = tint,
+            maxLines = 1,
         )
     }
 }
