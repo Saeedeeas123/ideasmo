@@ -180,6 +180,7 @@ private fun IdeasmoApp() {
                 kind = NodeStore.KIND_IDEA,
                 isDark = isDark,
                 onToggleTheme = toggleTheme,
+                onOpenAppSettings = { push(Screen.Settings) },
                 onBack = { pop() },
             )
 

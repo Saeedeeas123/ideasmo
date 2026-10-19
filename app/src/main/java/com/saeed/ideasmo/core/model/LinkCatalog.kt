@@ -321,10 +321,19 @@ object LinkCatalog {
 
     val default: LinkType get() = byKey.getValue(DEFAULT_KEY)
 
-    fun byKeyOrNull(key: String): LinkType? = byKey[key]
+    fun byKeyOrNull(key: String?): LinkType? = key?.let { byKey[it] }
 
     /** Falls back to the default type, so unknown keys from an older file never crash. */
     fun byKey(key: String): LinkType = byKey[key] ?: default
+
+    /**
+     * The type a **new** relation starts as (v0.16.0).
+     *
+     * The board's connect flow reads the user's stored preference through this, and an unknown or
+     * missing key quietly becomes the neutral default — a preference must never be able to break the
+     * act of creating a link.
+     */
+    fun defaultFor(key: String?): LinkType = byKeyOrNull(key) ?: default
 
     /** The catalog grouped by family, in declaration order — used by the picker and Help. */
     fun byFamily(): List<Pair<LinkFamily, List<LinkType>>> =

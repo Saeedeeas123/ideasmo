@@ -43,6 +43,7 @@ import androidx.compose.material.icons.outlined.AutoFixHigh
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.MyLocation
+import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.automirrored.outlined.Redo
@@ -60,6 +61,8 @@ import com.saeed.ideasmo.core.util.copyFileIntoAppStorage
 import kotlin.math.abs
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -317,6 +320,8 @@ fun BoardScreen(
     kind: String,
     isDark: Boolean,
     onToggleTheme: () -> Unit,
+    /** Open the app's own settings (theme, help, logs, version) — the board's settings point there. */
+    onOpenAppSettings: () -> Unit,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -358,11 +363,16 @@ fun BoardScreen(
     var selectedLinkId by remember { mutableStateOf<String?>(null) }
     var panel by remember { mutableStateOf<Panel?>(null) }
     var connectFrom by remember { mutableStateOf<String?>(null) }
-    var pendingType by remember { mutableStateOf(LinkCatalog.default) }
+    // Which relation a new link starts as: the user's stored preference (v0.16.0, set in the project
+    // settings), falling back to the catalog's neutral type.
+    val defaultLinkType = LinkCatalog.defaultFor(BoardPrefs.defaultLinkKey)
+    var pendingType by remember { mutableStateOf(defaultLinkType) }
     var pendingLabel by remember { mutableStateOf<String?>(null) }
     var reattachFrom by remember { mutableStateOf<String?>(null) }
     var tool by remember { mutableStateOf(NodeTool.None) }
     var notice by remember { mutableStateOf<String?>(null) }
+    // The board-wide command menu in the top bar (v0.16.0).
+    var boardMenu by remember { mutableStateOf(false) }
     var minimapVisible by remember { mutableStateOf(false) }
     var centeredOnce by remember { mutableStateOf(false) }
 
@@ -407,7 +417,7 @@ fun BoardScreen(
             connectFrom != null -> {
                 connectFrom = null
                 pendingLabel = null
-                pendingType = LinkCatalog.default
+                pendingType = defaultLinkType
                 notice = null
                 AppLog.i("Board", "link cancelled by back")
             }
@@ -625,7 +635,7 @@ fun BoardScreen(
                 else -> notice = context.getString(R.string.link_self)
             }
             pendingLabel = null
-            pendingType = LinkCatalog.default
+            pendingType = defaultLinkType
         } else {
             // Selection rules: tap the only selected node to drop it, tap inside a group to toggle,
             // otherwise start a new single selection.
@@ -932,6 +942,51 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                             imageVector = if (isDark) Icons.Outlined.DarkMode else Icons.Outlined.LightMode,
                             contentDescription = stringResource(R.string.cd_theme_toggle),
                         )
+                    }
+                    // The board's own menu: the commands that act on the WHOLE board (v0.16.0).
+                    //
+                    // They used to sit in the project settings, which was wrong on Saeed's own rule —
+                    // "a feature is different from a setting". A command is not a preference: nothing
+                    // about it is remembered, and running it changes the map, so it belongs with the
+                    // board it acts on. The per-node versions of these (collapse, arrange a branch)
+                    // live in the node's menu; these are the board-wide ones.
+                    Box {
+                        IconButton(onClick = { boardMenu = true }) {
+                            Icon(
+                                imageVector = Icons.Outlined.MoreVert,
+                                contentDescription = stringResource(R.string.board_menu),
+                            )
+                        }
+                        DropdownMenu(expanded = boardMenu, onDismissRequest = { boardMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.arrange_now)) },
+                                leadingIcon = {
+                                    Icon(Icons.Outlined.AutoFixHigh, contentDescription = null)
+                                },
+                                onClick = {
+                                    boardMenu = false
+                                    arrangeNow()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.collapse_all)) },
+                                leadingIcon = { Icon(Icons.Outlined.Remove, contentDescription = null) },
+                                onClick = {
+                                    boardMenu = false
+                                    NodeStore.setCollapsedAll(context, true)
+                                    notice = context.getString(R.string.collapse_all_done)
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.expand_all)) },
+                                leadingIcon = { Icon(Icons.Outlined.Add, contentDescription = null) },
+                                onClick = {
+                                    boardMenu = false
+                                    NodeStore.setCollapsedAll(context, false)
+                                    notice = context.getString(R.string.expand_all_done)
+                                },
+                            )
+                        }
                     }
                 },
             )
@@ -1283,7 +1338,7 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                             connectFrom = null
                             reattachFrom = null
                             pendingLabel = null
-                            pendingType = LinkCatalog.default
+                            pendingType = defaultLinkType
                             notice = null
                         },
                         onDismiss = { notice = null },
@@ -1586,7 +1641,7 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                             notice = context.getString(R.string.link_choose_hint, type.name)
                         },
                         onCustom = { phrase ->
-                            pendingType = LinkCatalog.default
+                            pendingType = defaultLinkType
                             pendingLabel = phrase
                             connectFrom = node.id
                             panel = null
@@ -1655,6 +1710,7 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                     spacing = spacing,
                     showLabels = showLabels,
                     showMinimap = showMinimapPref,
+                    defaultLinkKey = BoardPrefs.defaultLinkKey,
                     rootCount = NodeStore.rootIds(kind).size,
                     hiddenCount = hidden.size,
                     arrangedCount = nodes.count { it.arrange != null },
@@ -1663,15 +1719,10 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                     onSpacing = { BoardPrefs.setSpacing(context, it.key) },
                     onShowLabels = { BoardPrefs.setShowLinkLabels(context, it) },
                     onShowMinimap = { BoardPrefs.setShowMinimap(context, it) },
-                    onArrange = arrangeNow,
-                    onCollapseAll = {
-                        NodeStore.setCollapsedAll(context, true)
-                        notice = context.getString(R.string.collapse_all_done)
-                    },
-                    onExpandAll = {
-                        NodeStore.setCollapsedAll(context, false)
-                        notice = context.getString(R.string.expand_all_done)
-                    },
+                    onDefaultLink = { BoardPrefs.setDefaultLink(context, it) },
+                    // The app-wide preferences have exactly one home; the board's settings point there
+                    // instead of copying them (v0.16.0).
+                    onOpenAppSettings = onOpenAppSettings,
                     onClose = { panel = null },
                 )
 

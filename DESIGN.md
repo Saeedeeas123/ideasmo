@@ -787,3 +787,52 @@ arranged node carry its branch.
 open-with path is unverified on the device; and a *Free* branch that is laid out by the whole-map Arrange
 is still laid out to the right — there is no per-node "don't touch this at all" beyond leaving the whole
 board alone.
+
+## v0.16.0 — settings hold settings: Board, Modes, Links, App (and the commands move to the board)
+
+Saeed's round, in his words: *"the structure you put there is redundant now, because we put it into the
+node's capabilities ... in settings the software needs — and generally, obviously, it should be about
+the overall work, and about the board we went into, and about the modes and the links. Do not forget
+that a feature is different from a setting."*
+
+That last sentence is the whole design rule of this release, and it decided every move:
+
+- **The Structure group is gone.** Its arrangement text described something that now lives on the node
+  (v0.15.0: a node's menu carries Arrange with Free), so the section had nothing of its own left.
+- **A command is not a setting.** *Arrange the map*, *Collapse all* and *Expand all* were sitting in
+  settings, and none of them is remembered — running one changes the map. They now live in the board's
+  own menu (the ⋮ in the top bar), next to the board they act on, while their per-node counterparts
+  (collapse a branch, arrange a branch) stay in the node's menu. Nothing was dropped; each thing moved
+  to where it belongs.
+- **What is left is four groups of remembered preferences:**
+  1. **Board** — the room the arrangement leaves between levels (spacing), and what is drawn on top of
+     the board (the travelling minimap).
+  2. **Modes** — the eight board modes as live miniatures, and the six themes.
+  3. **Links** — relation names on the board (moved here from Display: it *is* a link setting), and a
+     genuinely new one: **the relation a new link starts as**. It is stored in `BoardPrefs`
+     (`default_link`) and read through `LinkCatalog.defaultFor(key)`, so an unknown or missing key can
+     never break creating a link; it is chosen with the same searchable, family-filtered chooser the
+     picker and the inspector use (v0.15.0), and the connect flow starts from it.
+  4. **App** — one row that opens the app's own settings (theme, help, logs, version). The app-wide
+     preferences keep exactly one home instead of being copied into the board's screen.
+- **Dead weight removed with it:** `BoardPrefs.showOrigin` / `setShowOrigin` had been unread since the
+  origin marker was taken off the board by Saeed's own order in v0.12.0, and `drawBoardOrigin` was the
+  drawing code that nothing called. Both are gone; the origin itself stays as the internal coordinate
+  anchor Arrange measures from. The strings of the removed sections (`settings_structure*`,
+  `settings_direction*`, `settings_display`) were deleted too, so the resource file does not keep
+  entries nothing can reach.
+
+**Verified:** `:app:testDebugUnitTest` **60/60 green** — LinkCatalogTest is now 6 (the new test pins the
+rule that a stored default-relation preference survives null, empty, an unknown key and every real key
+in the catalog), DrivePathsTest 9, StructureLayoutTest 29, NodeCatalogTest 10, FragmentBuilderTest 6.
+`:app:assembleDebug` **BUILD SUCCESSFUL with 0 Kotlin warnings**. aapt2 badging: versionCode 16 /
+versionName 0.16.0. The shipped APK was checked without a device: `resources.arsc` holds the new strings
+("Board commands", "Relation a new link starts as", "App settings", "The board, the modes, the links and
+the app") and `classes*.dex` holds `default_link`.
+
+**Not verified:** the device. Look at: does the settings panel now read as preferences only; do the
+board's ⋮ commands feel like the right home for Arrange the map / Collapse all / Expand all; does the
+new default-relation setting actually seed the connect flow; is the App row a sensible single door.
+
+**Still open:** the Drive's trash browser and multi-select; folder copy; a Free branch laid out by the
+whole-map Arrange still goes to the right.

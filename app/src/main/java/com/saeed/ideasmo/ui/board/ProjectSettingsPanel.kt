@@ -23,18 +23,23 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AutoFixHigh
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Link
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -42,21 +47,34 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.saeed.ideasmo.R
-import com.saeed.ideasmo.core.model.LayoutDirection
 import com.saeed.ideasmo.core.model.LayoutSpacing
+import com.saeed.ideasmo.core.model.LinkCatalog
+import com.saeed.ideasmo.core.model.LinkFamily
 import com.saeed.ideasmo.ui.components.ChoiceChip
+import com.saeed.ideasmo.ui.components.NavRow
 import com.saeed.ideasmo.ui.components.SectionTitle
 import com.saeed.ideasmo.ui.theme.Radius
 import com.saeed.ideasmo.ui.theme.Sizes
 import com.saeed.ideasmo.ui.theme.Spacing
 
 /**
- * Project settings — opened from the top-left button on the board, as ordered.
+ * Project settings — opened from the top-left button on the board.
  *
- * The **first** setting is the board mode: eight surfaces, from the plain sheet this app shipped
- * with to the patterns infinite-canvas and drafting tools use, each shown as a live miniature so it
- * is chosen by looking at it. The board theme follows, then the structure of the map (direction,
- * spacing, arrange, collapse) and finally what is drawn on top of the board.
+ * **What belongs here, and what does not (v0.16.0).** Saeed's rule for this round: *"a feature is
+ * different from a setting"*, and the settings should be about the app in general, the board, the modes
+ * and the links. So this screen holds **preferences that are remembered**, in four groups:
+ *
+ * - **Board** — how the workspace behaves: the spacing the arrangement leaves between levels, and what
+ *   is drawn on top of the board (the travelling minimap).
+ * - **Modes** — the eight board modes, each shown as a live miniature, and the six themes.
+ * - **Links** — relation names on the board, and which relation a new link starts as.
+ * - **App** — the door to the app's own settings (theme, help, logs, version), so the app-wide
+ *   preferences have exactly one home and this screen does not duplicate them.
+ *
+ * The **Structure** group is gone: the arrangement moved into the node's own menu in v0.15.0, so the
+ * section had nothing left of its own. The board-wide **commands** that used to sit in it — Arrange the
+ * map, Collapse all, Expand all — are features, not settings, and now live in the board's own menu in
+ * the top bar. Nothing was dropped; each thing moved to where it belongs.
  */
 @Composable
 internal fun ProjectSettingsPanel(
@@ -65,6 +83,7 @@ internal fun ProjectSettingsPanel(
     spacing: LayoutSpacing,
     showLabels: Boolean,
     showMinimap: Boolean,
+    defaultLinkKey: String,
     rootCount: Int,
     hiddenCount: Int,
     arrangedCount: Int,
@@ -73,13 +92,13 @@ internal fun ProjectSettingsPanel(
     onSpacing: (LayoutSpacing) -> Unit,
     onShowLabels: (Boolean) -> Unit,
     onShowMinimap: (Boolean) -> Unit,
-    onArrange: () -> Unit,
-    onCollapseAll: () -> Unit,
-    onExpandAll: () -> Unit,
+    onDefaultLink: (String) -> Unit,
+    onOpenAppSettings: () -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = boardColorsOf(palette)
+    var choosingDefaultLink by remember { mutableStateOf(false) }
 
     Surface(
         modifier = modifier.fillMaxSize(),
@@ -122,55 +141,29 @@ internal fun ProjectSettingsPanel(
                     bottom = Spacing.xxxl,
                 ),
             ) {
-                // ---- 1. board mode -------------------------------------------
-                item(key = "mode_header") {
-                    SectionTitle(stringResource(R.string.settings_board_mode))
+                // ---- 1. the board: how the workspace behaves -------------------
+                item(key = "board_header") {
+                    SectionTitle(stringResource(R.string.settings_board))
                 }
-                items(BoardPattern.values().toList(), key = { "pat_" + it.key }) { candidate ->
-                    PatternRow(
-                        pattern = candidate,
-                        colors = colors,
-                        selected = candidate == pattern,
-                        onClick = { onPattern(candidate) },
-                    )
-                }
-
-                // ---- 2. board theme ------------------------------------------
-                item(key = "theme_header") {
-                    SectionTitle(stringResource(R.string.settings_board_theme))
-                }
-                items(BoardPalette.values().toList(), key = { "pal_" + it.key }) { candidate ->
-                    PaletteRow(
-                        palette = candidate,
-                        selected = candidate == palette,
-                        onClick = { onPalette(candidate) },
-                    )
-                }
-
-                // ---- 3. structure --------------------------------------------
-                item(key = "structure_header") {
-                    SectionTitle(stringResource(R.string.settings_structure))
-                }
-                item(key = "structure_hint") {
+                item(key = "board_detail") {
                     Text(
-                        text = stringResource(R.string.settings_structure_detail, rootCount, hiddenCount),
+                        text = stringResource(R.string.settings_board_detail, rootCount, hiddenCount),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                item(key = "direction") {
+                item(key = "spacing") {
                     Column(modifier = Modifier.fillMaxWidth()) {
-                        Spacer(Modifier.height(Spacing.s))
-                        Text(
-                            text = stringResource(R.string.settings_direction_detail, arrangedCount),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
                         Spacer(Modifier.height(Spacing.s))
                         Text(
                             text = stringResource(R.string.settings_spacing),
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            text = stringResource(R.string.settings_spacing_detail, arrangedCount),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Spacer(Modifier.height(Spacing.s))
                         Row(
@@ -188,53 +181,7 @@ internal fun ProjectSettingsPanel(
                                 )
                             }
                         }
-                        Spacer(Modifier.height(Spacing.l))
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(Spacing.s),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            OutlinedButton(
-                                onClick = onArrange,
-                                modifier = Modifier.heightIn(min = Sizes.touchMin),
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.AutoFixHigh,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(Sizes.iconSm),
-                                )
-                                Spacer(Modifier.width(Spacing.s))
-                                Text(stringResource(R.string.arrange_now))
-                            }
-                            TextButton(
-                                onClick = onCollapseAll,
-                                modifier = Modifier.heightIn(min = Sizes.touchMin),
-                            ) {
-                                Text(stringResource(R.string.collapse_all))
-                            }
-                            TextButton(
-                                onClick = onExpandAll,
-                                modifier = Modifier.heightIn(min = Sizes.touchMin),
-                            ) {
-                                Text(stringResource(R.string.expand_all))
-                            }
-                        }
                     }
-                }
-
-                // ---- 4. display ----------------------------------------------
-                item(key = "display_header") {
-                    SectionTitle(stringResource(R.string.settings_display))
-                }
-                item(key = "labels") {
-                    ToggleRow(
-                        title = stringResource(R.string.settings_labels),
-                        detail = stringResource(R.string.settings_labels_detail),
-                        checked = showLabels,
-                        onCheckedChange = onShowLabels,
-                    )
                 }
                 item(key = "minimap") {
                     ToggleRow(
@@ -245,11 +192,107 @@ internal fun ProjectSettingsPanel(
                     )
                 }
 
+                // ---- 2. the modes ----------------------------------------------
+                item(key = "mode_header") {
+                    SectionTitle(stringResource(R.string.settings_board_mode))
+                }
+                items(BoardPattern.values().toList(), key = { "pat_" + it.key }) { candidate ->
+                    PatternRow(
+                        pattern = candidate,
+                        colors = colors,
+                        selected = candidate == pattern,
+                        onClick = { onPattern(candidate) },
+                    )
+                }
+
+                item(key = "theme_header") {
+                    SectionTitle(stringResource(R.string.settings_board_theme))
+                }
+                items(BoardPalette.values().toList(), key = { "pal_" + it.key }) { candidate ->
+                    PaletteRow(
+                        palette = candidate,
+                        selected = candidate == palette,
+                        onClick = { onPalette(candidate) },
+                    )
+                }
+
+                // ---- 3. the links ----------------------------------------------
+                item(key = "links_header") {
+                    SectionTitle(stringResource(R.string.settings_links))
+                }
+                item(key = "labels") {
+                    ToggleRow(
+                        title = stringResource(R.string.settings_labels),
+                        detail = stringResource(R.string.settings_labels_detail),
+                        checked = showLabels,
+                        onCheckedChange = onShowLabels,
+                    )
+                }
+                item(key = "default_link") {
+                    NavRow(
+                        title = stringResource(R.string.settings_default_link),
+                        subtitle = stringResource(
+                            R.string.settings_default_link_detail,
+                            LinkCatalog.defaultFor(defaultLinkKey).name,
+                        ),
+                        icon = Icons.Outlined.Link,
+                        onClick = { choosingDefaultLink = true },
+                    )
+                }
+
+                // ---- 4. the app itself -----------------------------------------
+                item(key = "app_header") {
+                    SectionTitle(stringResource(R.string.settings_app))
+                }
+                item(key = "app_row") {
+                    NavRow(
+                        title = stringResource(R.string.settings_app_open),
+                        subtitle = stringResource(R.string.settings_app_open_detail),
+                        icon = Icons.Outlined.Settings,
+                        onClick = onOpenAppSettings,
+                    )
+                }
+
                 item(key = "footer") {
                     HorizontalDivider(modifier = Modifier.padding(top = Spacing.l))
                 }
             }
         }
+    }
+
+    if (choosingDefaultLink) {
+        // The same chooser the picker and the inspector use (v0.15.0), so "which relation" is found the
+        // same way everywhere in the app.
+        var query by remember { mutableStateOf("") }
+        var family by remember { mutableStateOf<LinkFamily?>(null) }
+        AlertDialog(
+            onDismissRequest = { choosingDefaultLink = false },
+            title = { Text(stringResource(R.string.settings_default_link)) },
+            text = {
+                Column(modifier = Modifier.heightIn(max = 460.dp)) {
+                    LinkSearchField(query = query, onQuery = { query = it })
+                    Spacer(Modifier.height(Spacing.s))
+                    LinkFamilyChips(selected = family, onSelect = { family = it })
+                    Spacer(Modifier.height(Spacing.s))
+                    LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                        linkResults(
+                            query = query,
+                            family = family,
+                            selectedKey = defaultLinkKey,
+                            onPick = { type ->
+                                onDefaultLink(type.key)
+                                choosingDefaultLink = false
+                            },
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { choosingDefaultLink = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
     }
 }
 

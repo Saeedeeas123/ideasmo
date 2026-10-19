@@ -82,4 +82,19 @@ class LinkCatalogTest {
             )
         }
     }
+
+    @Test
+    fun theDefaultRelationOfANewLinkSurvivesAnythingStored() {
+        // v0.16.0 — the relation a new link starts as is a stored preference, so it has to be safe:
+        // whatever ends up in the preference (a key from an older build, a renamed type, nothing at
+        // all), creating a link must still work.
+        assertEquals("relates", LinkCatalog.defaultFor(null).key)
+        assertEquals("relates", LinkCatalog.defaultFor("").key)
+        assertEquals("relates", LinkCatalog.defaultFor("a-type-that-never-existed").key)
+        // A real preference is honoured, and every type in the catalog can be one.
+        assertEquals("depends_on", LinkCatalog.defaultFor("depends_on").key)
+        LinkCatalog.all.forEach { type ->
+            assertEquals(type.key, LinkCatalog.defaultFor(type.key).key)
+        }
+    }
 }

@@ -160,15 +160,21 @@
     <!-- v0.6.0 · project settings (top-left button on the board) -->
     <string name="cd_project_settings">Project settings</string>
     <string name="project_settings_title">Project settings</string>
-    <string name="project_settings_detail">Board, structure and display for this workspace</string>
+    <string name="project_settings_detail">The board, the modes, the links and the app</string>
     <string name="settings_board_mode">Board mode</string>
     <string name="settings_board_theme">Board theme</string>
-    <string name="settings_structure">Structure</string>
-    <string name="settings_structure_detail">%1$d central node(s) · %2$d node(s) hidden by a collapsed branch</string>
-    <string name="settings_direction">Direction the map grows</string>
-    <string name="settings_direction_detail">The arrangement belongs to each node now: open a node\'s menu and choose Arrange (Right, Left, Up, Down, Radial — or Free). %1$d node(s) on this board carry a direction; trees left on Free are laid out to the right by Arrange now.</string>
+    <string name="settings_board">Board</string>
+    <string name="settings_board_detail">%1$d central node(s) · %2$d node(s) hidden by a collapsed branch</string>
+    <string name="settings_spacing_detail">The room the arrangement leaves between levels. %1$d node(s) on this board carry an arrangement of their own — set it from a node\'s menu (Arrange).</string>
+    <string name="settings_links">Links</string>
+    <string name="settings_default_link">Relation a new link starts as</string>
+    <string name="settings_default_link_detail">%1$s — used when you start a new relation; the picker can still choose any other.</string>
+    <string name="settings_app">App</string>
+    <string name="settings_app_open">App settings</string>
+    <string name="settings_app_open_detail">Theme, help, logs and the version</string>
+    <string name="board_menu">Board commands</string>
+    <string name="board_menu_hint">Actions for the whole board. A feature is not a setting, so these live here — the node menu holds the per-node ones.</string>
     <string name="settings_spacing">Spacing between levels</string>
-    <string name="settings_display">Display</string>
     <string name="settings_labels">Relation names on the board</string>
     <string name="settings_labels_detail">Show the name of each relation on its line</string>
     <string name="settings_minimap">Travelling minimap</string>
