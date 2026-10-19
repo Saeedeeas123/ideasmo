@@ -3,6 +3,8 @@ package com.saeed.ideasmo.ui.board
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -191,31 +193,21 @@ internal fun NodeActionBox(
                     ) {
                         when (tool) {
                             NodeTool.Colour -> Row(
+                                modifier = Modifier.width(boxWDp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
                             ) {
-                                SwatchButton(
-                                    colour = MaterialTheme.colorScheme.surface,
-                                    selected = node.color == null,
-                                    onClick = { onColor(null) },
-                                )
-                                NodeStyle.COLORS.forEach { option ->
-                                    val role = LinkColor.values()
-                                        .firstOrNull { it.name.equals(option.key, true) }
-                                    SwatchButton(
-                                        colour = if (role != null) {
-                                            themeRoleColor(MaterialTheme.colorScheme, role)
-                                        } else {
-                                            MaterialTheme.colorScheme.outline
-                                        },
-                                        selected = node.color == option.key,
-                                        onClick = { onColor(option.key) },
-                                    )
+                                // The shared chooser (v0.17.0): theme roles, twelve preset colours and
+                                // the RGB builder, scrolling inside the box so the box never grows.
+                                Box(modifier = Modifier.weight(1f)) {
+                                    NodeColourRow(current = node.color, onPick = onColor)
                                 }
                                 ToolClose(onClick = { onTool(NodeTool.None) })
                             }
 
                             NodeTool.Shape -> Row(
+                                modifier = Modifier
+                                    .width(boxWDp)
+                                    .horizontalScroll(rememberScrollState()),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
                             ) {
@@ -350,29 +342,6 @@ private fun ActionCell(
                 )
             }
         }
-    }
-}
-
-/** A colour swatch inside the palette row. */
-@Composable
-private fun SwatchButton(
-    colour: androidx.compose.ui.graphics.Color,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    Box(
-        modifier = Modifier
-            .size(SWATCH_W, TOOL_ROW_H)
-            .clip(RoundedCornerShape(Radius.small))
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(if (selected) 30.dp else 24.dp)
-                .clip(CircleShape)
-                .background(colour),
-        )
     }
 }
 

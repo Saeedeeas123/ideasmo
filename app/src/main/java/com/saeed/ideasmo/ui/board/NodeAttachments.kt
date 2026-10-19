@@ -40,6 +40,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.saeed.ideasmo.R
 import com.saeed.ideasmo.core.model.IdeaNode
+import com.saeed.ideasmo.core.model.NoteText
+import com.saeed.ideasmo.core.model.NodeStore
 import com.saeed.ideasmo.core.util.decodeThumbnail
 import com.saeed.ideasmo.core.util.storedFileName
 import com.saeed.ideasmo.ui.theme.Radius
@@ -47,28 +49,62 @@ import com.saeed.ideasmo.ui.theme.Sizes
 import com.saeed.ideasmo.ui.theme.Spacing
 
 /**
- * The node's **notes** — a list, with no limit.
+ * The node's **notes** — a list, with no limit, and a text menu (v0.17.0).
  *
- * Saeed's order (v0.12.0): a node may carry any number of notes, and the Note action must show how
- * many there are; opening it has to give access to the ones that are already there and to creating
- * one or several new ones. The card itself no longer shows note text — only the count.
+ * Saeed's order (v0.12.0) was that a node may carry any number of notes and the Note action shows how
+ * many there are; opening it gives access to the ones already there and to creating new ones. v0.17.0
+ * added the second half of his request: *"above the place where the note is written the user must have
+ * a simple text menu — bold, italic, smaller and larger, a font choice, the normal things."*
+ *
+ * So the dialog is now: the notes as they READ (markers applied, each in its own font and size), and an
+ * editor with the toolbar above it. Tapping a note loads it into the editor; the live preview under the
+ * field shows what the markers do while typing, so bold is never a guess.
  */
 @Composable
 internal fun NodeNotesDialog(
     node: IdeaNode,
-    onAdd: (String) -> Unit,
+    onAdd: (String, String) -> Unit,
+    onUpdate: (Int, String, String) -> Unit,
     onRemove: (Int) -> Unit,
     onSaveToDrive: (index: Int, text: String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var draft by remember(node.id) { mutableStateOf("") }
+    var draftFont by remember(node.id) { mutableStateOf(NoteText.fontOf(null)) }
+    var draftSize by remember(node.id) { mutableStateOf(NoteText.sizeOf(null)) }
+    var editing by remember(node.id) { mutableStateOf<Int?>(null) }
+    var selection by remember(node.id) { mutableStateOf(0..0) }
+    val draftStyle = NoteText.styleKey(draftFont, draftSize)
+
+    fun load(index: Int) {
+        editing = index
+        draft = node.notes.getOrNull(index).orEmpty()
+        draftFont = NoteText.fontOf(NodeStore.noteStyleOf(node, index))
+        draftSize = NoteText.sizeOf(NodeStore.noteStyleOf(node, index))
+        selection = draft.length..draft.length
+    }
+
+    fun reset() {
+        editing = null
+        draft = ""
+        draftFont = NoteText.fontOf(null)
+        draftSize = NoteText.sizeOf(null)
+        selection = 0..0
+    }
+
+    fun stepSize(up: Boolean) {
+        val index = NoteText.SIZES.indexOfFirst { it.key == draftSize }
+        val next = if (up) index + 1 else index - 1
+        if (next in NoteText.SIZES.indices) draftSize = NoteText.SIZES[next].key
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.att_notes_title, node.notes.size)) },
         text = {
             Column(
                 modifier = Modifier
-                    .heightIn(max = 420.dp)
+                    .heightIn(max = 460.dp)
                     .verticalScroll(rememberScrollState()),
             ) {
                 if (node.notes.isEmpty()) {
@@ -84,16 +120,32 @@ internal fun NodeNotesDialog(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.Top,
                     ) {
-                        Text(
-                            text = note,
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurface,
+                        Column(
                             modifier = Modifier
                                 .weight(1f)
                                 .padding(vertical = Spacing.s),
-                        )
+                        ) {
+                            // Rendered, not raw: the note reads the way it will read everywhere else.
+                            NoteBody(raw = note, style = NodeStore.noteStyleOf(node, index))
+                            Text(
+                                text = stringResource(
+                                    R.string.note_style_line,
+                                    NoteText.fontLabel(NodeStore.noteStyleOf(node, index)),
+                                    NoteText.sizeLabel(NodeStore.noteStyleOf(node, index)),
+                                ),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.outline,
+                            )
+                        }
                         TextButton(
-                            onClick = { onSaveToDrive(index, note) },
+                            onClick = { load(index) },
+                            modifier = Modifier.heightIn(min = Sizes.touchMin),
+                        ) {
+                            Text(stringResource(R.string.note_edit))
+                        }
+                        TextButton(
+                            // Exported as it READS: markers out, so the .txt file is clean text.
+                            onClick = { onSaveToDrive(index, NoteText.plain(note)) },
                             modifier = Modifier.heightIn(min = Sizes.touchMin),
                         ) {
                             Text(stringResource(R.string.note_to_drive))
@@ -111,26 +163,95 @@ internal fun NodeNotesDialog(
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
                 }
+
                 Spacer(Modifier.height(Spacing.m))
+                Text(
+                    text = stringResource(
+                        if (editing == null) R.string.att_new_note else R.string.note_editing,
+                        editing?.plus(1) ?: 0,
+                    ),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                // ---- the text menu, above the writing area --------------------
+                NoteToolbar(
+                    fontKey = draftFont,
+                    onBold = {
+                        val edit = NoteText.toggleBold(draft, selection)
+                        draft = edit.text
+                        selection = edit.selection
+                    },
+                    onItalic = {
+                        val edit = NoteText.toggleItalic(draft, selection)
+                        draft = edit.text
+                        selection = edit.selection
+                    },
+                    onSizeDown = { stepSize(up = false) },
+                    onSizeUp = { stepSize(up = true) },
+                    onFont = { draftFont = it },
+                )
                 OutlinedTextField(
                     value = draft,
                     onValueChange = { draft = it },
                     modifier = Modifier.fillMaxWidth(),
-                    minLines = 2,
+                    minLines = 3,
                     shape = RoundedCornerShape(Radius.medium),
                     label = { Text(stringResource(R.string.att_new_note)) },
-                )
-                Spacer(Modifier.height(Spacing.s))
-                TextButton(
-                    onClick = {
-                        if (draft.isNotBlank()) {
-                            onAdd(draft)
-                            draft = ""
-                        }
+                    supportingText = {
+                        Text(
+                            text = stringResource(
+                                R.string.note_style_now,
+                                NoteText.fontLabel(draftStyle),
+                                NoteText.sizeLabel(draftStyle),
+                            ),
+                        )
                     },
-                    modifier = Modifier.heightIn(min = Sizes.touchMin),
+                )
+                if (draft.isNotBlank()) {
+                    Spacer(Modifier.height(Spacing.s))
+                    Text(
+                        text = stringResource(R.string.note_preview),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline,
+                    )
+                    // The live preview: exactly how the note will read.
+                    NoteBody(raw = draft, style = draftStyle, modifier = Modifier.padding(top = Spacing.xs))
+                }
+                Spacer(Modifier.height(Spacing.s))
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.s),
                 ) {
-                    Text(stringResource(R.string.att_add_note))
+                    TextButton(
+                        onClick = {
+                            val index = editing
+                            if (index == null) onAdd(draft, draftStyle) else onUpdate(index, draft, draftStyle)
+                            reset()
+                        },
+                        enabled = draft.isNotBlank(),
+                        modifier = Modifier.heightIn(min = Sizes.touchMin),
+                    ) {
+                        Text(
+                            stringResource(
+                                if (editing == null) R.string.att_add_note else R.string.note_save,
+                            ),
+                        )
+                    }
+                    if (editing != null) {
+                        TextButton(
+                            onClick = { reset() },
+                            modifier = Modifier.heightIn(min = Sizes.touchMin),
+                        ) {
+                            Text(stringResource(R.string.note_stop_editing))
+                        }
+                    }
+                    TextButton(
+                        onClick = { reset() },
+                        enabled = draft.isNotBlank() || editing != null,
+                        modifier = Modifier.heightIn(min = Sizes.touchMin),
+                    ) {
+                        Text(stringResource(R.string.note_clear))
+                    }
                 }
             }
         },

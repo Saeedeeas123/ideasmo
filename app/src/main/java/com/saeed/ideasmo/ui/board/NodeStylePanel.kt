@@ -1,6 +1,7 @@
 package com.saeed.ideasmo.ui.board
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,7 +12,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
@@ -30,7 +33,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.saeed.ideasmo.R
 import com.saeed.ideasmo.core.model.IdeaNode
-import com.saeed.ideasmo.core.model.LinkColor
 import com.saeed.ideasmo.core.model.NodeStyle
 import com.saeed.ideasmo.ui.components.ChoiceChip
 import com.saeed.ideasmo.ui.components.SectionTitle
@@ -130,40 +132,19 @@ internal fun NodeStylePanel(
 
                 item(key = "colour_header") { SectionTitle(stringResource(R.string.style_colour)) }
                 item(key = "colour_row") {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(Spacing.s),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        ChoiceChip(
-                            text = stringResource(R.string.style_default),
-                            selected = node.color == null,
-                            onClick = { onColor(null) },
-                            leading = { ColourDot(color = MaterialTheme.colorScheme.surfaceVariant) },
-                        )
-                        NodeStyle.COLORS.forEach { option ->
-                            val role = LinkColor.values().firstOrNull { it.name.equals(option.key, true) }
-                            ChoiceChip(
-                                text = option.label,
-                                selected = node.color == option.key,
-                                onClick = { onColor(option.key) },
-                                leading = {
-                                    ColourDot(
-                                        color = if (role != null) {
-                                            themeRoleColor(MaterialTheme.colorScheme, role)
-                                        } else {
-                                            MaterialTheme.colorScheme.outline
-                                        },
-                                    )
-                                },
-                            )
-                        }
-                    }
+                    // One chooser for every colour: the theme roles, the twelve presets, and the RGB
+                    // builder for anything else (v0.17.0). The same row is used in the node's action
+                    // box, so a colour is chosen the same way in both places.
+                    NodeColourRow(current = node.color, onPick = onColor)
                 }
                 item(key = "colour_detail") {
                     Text(
-                        text = NodeStyle.COLORS.firstOrNull { it.key == node.color }?.detail
-                            ?: stringResource(R.string.style_colour_default_detail),
+                        text = NodeStyle.ALL_COLORS.firstOrNull { it.key == node.color }?.detail
+                            ?: if (NodeStyle.isCustomColor(node.color)) {
+                                stringResource(R.string.style_colour_custom_detail, node.color ?: "")
+                            } else {
+                                stringResource(R.string.style_colour_default_detail)
+                            },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = Spacing.s),
@@ -172,8 +153,11 @@ internal fun NodeStylePanel(
 
                 item(key = "shape_header") { SectionTitle(stringResource(R.string.style_shape)) }
                 item(key = "shape_row") {
+                    // Nine shapes now, so the row scrolls instead of squeezing them.
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(Spacing.s),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -209,20 +193,70 @@ internal fun NodeStylePanel(
     }
 }
 
-@Composable
-private fun ColourDot(color: Color) {
-    Box(
-        modifier = Modifier
-            .size(14.dp)
-            .clip(CircleShape)
-            .background(color),
-    )
-}
-
-/** The card's shape for a stored key — plain Compose shapes, no custom drawing. */
+/**
+ * The card's shape for a stored key.
+ *
+ * Nine shapes now (Saeed asked for more in v0.17.0). The four simple ones are Compose shapes; the rest
+ * are built from a path, because a plaque, a ticket and a leaf are not rectangles with rounded corners
+ * and pretending otherwise would look wrong at any size. Every path is measured from the card's real
+ * size, so a resized card keeps its shape instead of stretching a fixed radius.
+ */
 internal fun nodeShapeOf(key: String) = when (key) {
     NodeStyle.SHAPE_SQUARE -> RoundedCornerShape(2.dp)
     NodeStyle.SHAPE_PILL -> CircleShape
     NodeStyle.SHAPE_CUT -> androidx.compose.foundation.shape.CutCornerShape(18.dp)
+    NodeStyle.SHAPE_SOFT -> RoundedCornerShape(26.dp)
+    NodeStyle.SHAPE_CIRCLE -> GenericShape { size, _ ->
+        addOval(
+            androidx.compose.ui.geometry.Rect(
+                left = 0f,
+                top = 0f,
+                right = size.width,
+                bottom = size.height,
+            ),
+        )
+    }
+
+    NodeStyle.SHAPE_OCTAGON -> GenericShape { size, _ ->
+        val cut = minOf(size.width, size.height) * 0.30f
+        moveTo(cut, 0f)
+        lineTo(size.width - cut, 0f)
+        lineTo(size.width, cut)
+        lineTo(size.width, size.height - cut)
+        lineTo(size.width - cut, size.height)
+        lineTo(cut, size.height)
+        lineTo(0f, size.height - cut)
+        lineTo(0f, cut)
+        close()
+    }
+
+    NodeStyle.SHAPE_TICKET -> GenericShape { size, _ ->
+        val notch = minOf(size.width, size.height) * 0.18f
+        val mid = size.height / 2f
+        moveTo(0f, 0f)
+        lineTo(size.width, 0f)
+        lineTo(size.width, mid - notch)
+        lineTo(size.width - notch, mid)
+        lineTo(size.width, mid + notch)
+        lineTo(size.width, size.height)
+        lineTo(0f, size.height)
+        lineTo(0f, mid + notch)
+        lineTo(notch, mid)
+        lineTo(0f, mid - notch)
+        close()
+    }
+
+    NodeStyle.SHAPE_LEAF -> GenericShape { size, _ ->
+        val radius = minOf(size.width, size.height) * 0.5f
+        moveTo(radius, 0f)
+        lineTo(size.width, 0f)
+        lineTo(size.width, size.height - radius)
+        quadraticBezierTo(size.width, size.height, size.width - radius, size.height)
+        lineTo(0f, size.height)
+        lineTo(0f, radius)
+        quadraticBezierTo(0f, 0f, radius, 0f)
+        close()
+    }
+
     else -> RoundedCornerShape(Radius.medium)
 }

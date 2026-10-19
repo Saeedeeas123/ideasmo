@@ -3,6 +3,7 @@ package com.saeed.ideasmo.core.model
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -132,7 +133,9 @@ class NodeCatalogTest {
         // Every stored key must resolve to a label, and an unknown one must not crash anything.
         shapeKeys.forEach { assertEquals(true, NodeStyle.shapeLabel(it).isNotBlank()) }
         assertEquals("Default", NodeStyle.colorLabel(null))
-        assertEquals("Default", NodeStyle.colorLabel("not-a-role"))
+        // v0.17.0: an unknown colour key is shown AS ITSELF rather than as "Default" — a colour from a
+        // newer build, or a hex the user built, should be visible, not silently called default.
+        assertEquals("not-a-role", NodeStyle.colorLabel("not-a-role"))
 
         // A size read from an old or hand-edited file snaps onto the supported set.
         assertEquals(1f, NodeStyle.sizeOf(1f), 0.001f)
@@ -181,5 +184,60 @@ class NodeCatalogTest {
         // Its description names the parameter and the Free option, which is what a model layer reads.
         assertTrue(action.description.contains("free", ignoreCase = true))
         assertTrue(action.description.contains("right", ignoreCase = true))
+    }
+
+    @Test
+    fun thereAreMoreShapesAndEveryOneHasItsOwnKey() {
+        // v0.17.0: Saeed asked for more shapes. What matters is that they are distinct, described, and
+        // reachable by key — the card reads its shape from the key and nothing else.
+        assertTrue("more than the original four", NodeStyle.SHAPES.size >= 9)
+        assertEquals(
+            "no two shapes share a key",
+            NodeStyle.SHAPES.size,
+            NodeStyle.SHAPES.map { it.key }.distinct().size,
+        )
+        assertTrue("every shape explains itself", NodeStyle.SHAPES.all { it.detail.isNotBlank() })
+        listOf(
+            NodeStyle.SHAPE_ROUNDED,
+            NodeStyle.SHAPE_SQUARE,
+            NodeStyle.SHAPE_PILL,
+            NodeStyle.SHAPE_CUT,
+            NodeStyle.SHAPE_SOFT,
+            NodeStyle.SHAPE_CIRCLE,
+            NodeStyle.SHAPE_OCTAGON,
+            NodeStyle.SHAPE_TICKET,
+            NodeStyle.SHAPE_LEAF,
+        ).forEach { key ->
+            assertTrue("the catalogue holds $key", NodeStyle.SHAPES.any { it.key == key })
+            assertTrue("$key has a label", NodeStyle.shapeLabel(key).isNotBlank())
+        }
+    }
+
+    @Test
+    fun thereAreMoreColoursAndAnyColourCanBeBuilt() {
+        // v0.17.0: more base colours plus an RGB palette. The presets are hex keys, so a colour the
+        // user builds needs no new model — it is the same kind of value.
+        assertTrue("the theme roles are still there", NodeStyle.COLORS.size >= 5)
+        assertTrue("and there are presets", NodeStyle.PRESETS.size >= 12)
+        assertEquals(NodeStyle.COLORS.size + NodeStyle.PRESETS.size, NodeStyle.ALL_COLORS.size)
+        assertTrue(NodeStyle.PRESETS.all { NodeStyle.isCustomColor(it.key) })
+        assertTrue(NodeStyle.PRESETS.all { NodeStyle.parseHex(it.key) != null })
+        // A colour built by hand round-trips through the same text form the model stores.
+        val built = NodeStyle.hexOf(18, 136, 229)
+        assertEquals("#1288E5", built)
+        assertEquals(Triple(18, 136, 229), NodeStyle.rgbOf(built))
+        // Shorthand and junk.
+        assertEquals(0xFF112233L, NodeStyle.parseHex("#123"))
+        assertEquals(0xFFAABBCCL, NodeStyle.parseHex("aabbcc"))
+        assertNull(NodeStyle.parseHex("not a colour"))
+        assertNull(NodeStyle.parseHex("#12345"))
+        assertNull(NodeStyle.parseHex(null))
+        // Channels are clamped, so a slider can never store an impossible value.
+        assertEquals("#FF00FF", NodeStyle.hexOf(300, -20, 255))
+        // A readable label for anything stored.
+        assertEquals("Default", NodeStyle.colorLabel(null))
+        assertEquals("Blue", NodeStyle.colorLabel(NodeStyle.COLOR_BLUE))
+        assertEquals("Primary", NodeStyle.colorLabel(NodeStyle.COLOR_PRIMARY))
+        assertEquals("#123456", NodeStyle.colorLabel("#123456"))
     }
 }

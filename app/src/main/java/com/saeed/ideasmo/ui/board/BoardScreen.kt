@@ -123,6 +123,7 @@ import com.saeed.ideasmo.core.model.NodeStyle
 import com.saeed.ideasmo.core.model.StructureLayout
 import com.saeed.ideasmo.core.model.UndoStack
 import com.saeed.ideasmo.core.prefs.BoardPrefs
+import com.saeed.ideasmo.core.prefs.NodePrefs
 import com.saeed.ideasmo.core.util.copyPictureIntoAppStorage
 import com.saeed.ideasmo.ui.components.NoticeBar
 import com.saeed.ideasmo.ui.components.ToolButton
@@ -149,13 +150,6 @@ private const val ZOOM_STEP = 0.25f
  * drops to 5%, otherwise MIN_SCALE would be unreachable (25% − 25% = 0).
  */
 private fun zoomStepAt(scale: Float): Float = if (scale <= 0.25f) 0.05f else ZOOM_STEP
-
-/**
- * How much of the screen the node sheet covers when it slides up from the bottom (Saeed's order:
- * "a big rectangle comes up that covers 70 % of the screen from the bottom, with the node shown at
- * its top, fixed").
- */
-private const val SHEET_HEIGHT_FRACTION = 0.70f
 
 private const val MINIMAP_LINGER_MS = 900L
 private const val MINIMAP_W = 200
@@ -271,7 +265,7 @@ private class BoardState {
     /**
      * Brings a point of board space to the middle of the **top band** of the screen.
      *
-     * When the node sheet is open it covers the bottom [SHEET_HEIGHT_FRACTION] of the screen, so
+     * When the node sheet is open it covers the bottom part of the screen, so
      * centring a node on the whole viewport would hide it behind the sheet. This puts it in the
      * middle of what is still visible.
      */
@@ -353,7 +347,9 @@ fun BoardScreen(
     var formOpen by remember { mutableStateOf(false) }
     var nodeName by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
-    var priority by remember { mutableStateOf(3) }
+    // The form starts from the node settings (v0.17.0), so the defaults the user set are what a new
+    // node actually gets.
+    var priority by remember { mutableStateOf(NodePrefs.priority) }
     var picPath by remember { mutableStateOf<String?>(null) }
 
     // Selection is a list: one node shows the action square, several show the group bar.
@@ -373,6 +369,10 @@ fun BoardScreen(
     var notice by remember { mutableStateOf<String?>(null) }
     // The board-wide command menu in the top bar (v0.16.0).
     var boardMenu by remember { mutableStateOf(false) }
+    // How much of the viewport an open sheet covers (v0.17.0). Saeed changed his mind about the panels
+    // being static: the rectangle now comes with a handle that resizes it, and the board behind it stays
+    // movable. One value for every sheet, so resizing survives moving between panels.
+    var sheetFraction by remember { mutableStateOf(SHEET_DEFAULT_FRACTION) }
     var minimapVisible by remember { mutableStateOf(false) }
     var centeredOnce by remember { mutableStateOf(false) }
 
@@ -382,6 +382,11 @@ fun BoardScreen(
 
     // Dialogs: one at a time.
     var textDialogFor by remember { mutableStateOf<String?>(null) }
+    // The node that SubNode/CoNode just created and is waiting to be named (v0.17.0). The node has to
+    // exist before the dialog opens - it needs a position and a link - so cancelling the dialog has to
+    // take it back. Without this, Cancel left a node called "New node" behind, which is exactly what
+    // Saeed reported.
+    var pendingCreation by remember { mutableStateOf<String?>(null) }
     var detailsFor by remember { mutableStateOf<String?>(null) }
     // Attachments (v0.12.0): a node carries LISTS of notes, pictures and files, and each action opens
     // what is already there plus a way to add more.
@@ -398,6 +403,23 @@ fun BoardScreen(
         tool = NodeTool.None
         notice = null
     }
+
+    /**
+     * Takes back a node that was created for naming and never named: the node, its link, the selection
+     * and the undo step pushed for it all go, so cancelling really cancels. A node the user has since
+     * renamed (or that is gone already) is left alone.
+     */
+    fun cancelPendingCreation() {
+        val id = pendingCreation ?: return
+        pendingCreation = null
+        val node = NodeStore.byId(id)
+        if (node != null && node.name == context.getString(R.string.node_new_default)) {
+            NodeStore.removeNodes(context, listOf(id))
+            UndoStack.dropLast()
+            selection = emptyList()
+            AppLog.i("Node", "creation cancelled: the unnamed node was removed")
+        }
+    }
     // ---- back is a step, not an exit ---------------------------------------
     BackHandler(
         enabled = fragmentRequest != null || textDialogFor != null || notesFor != null ||
@@ -408,7 +430,11 @@ fun BoardScreen(
     ) {
         when {
             fragmentRequest != null -> fragmentRequest = null
-            textDialogFor != null -> textDialogFor = null
+            textDialogFor != null -> {
+                // Back is a cancel here too: the created-but-unnamed node is taken back.
+                cancelPendingCreation()
+                textDialogFor = null
+            }
             notesFor != null -> notesFor = null
             imagesFor != null -> imagesFor = null
             filesDialogFor != null -> filesDialogFor = null
@@ -548,6 +574,12 @@ fun BoardScreen(
                     priority = priority,
                     notes = if (description.trim().isEmpty()) emptyList() else listOf(description.trim()),
                     pictures = picPath?.let { listOf(it) } ?: emptyList(),
+                    // Shape, colour and size come from the node settings, so a board can be built in a
+                    // house style without touching every card (v0.17.0).
+                    shape = NodePrefs.shapeKey,
+                    color = NodePrefs.colorKey,
+                    w = NodePrefs.width,
+                    h = NodePrefs.height,
                     createdAt = now,
                     x = wx,
                     y = wy,
@@ -560,7 +592,7 @@ fun BoardScreen(
             selection = listOf(id)
             nodeName = ""
             description = ""
-            priority = 3
+            priority = NodePrefs.priority
             picPath = null
             formOpen = false
         }
@@ -830,7 +862,7 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                     board.centreOnWorldBand(
                         wx = owner.x + StructureLayout.widthOf(owner) / 2f,
                         wy = owner.y + StructureLayout.heightOf(owner) / 2f,
-                        bandHeightPx = board.viewportH * (1f - SHEET_HEIGHT_FRACTION),
+                        bandHeightPx = board.viewportH * (1f - sheetFraction),
                     )
                 }
             }
@@ -867,6 +899,8 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                 onCreated = { id ->
                     selection = listOf(id)
                     textDialogFor = id
+                    // Remembered, so Cancel can take the node back (v0.17.0).
+                    pendingCreation = id
                 },
                 onNotice = { text -> notice = text },
             )
@@ -879,6 +913,8 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                 onCreated = { id ->
                     selection = listOf(id)
                     textDialogFor = id
+                    // Remembered, so Cancel can take the node back (v0.17.0).
+                    pendingCreation = id
                 },
                 onNotice = { text -> notice = text },
             )
@@ -899,11 +935,6 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
 
             else -> AppLog.w("Node", "no handler for action " + key)
         }
-    }
-
-    // 70% of the screen from the bottom, in real dp — see SHEET_HEIGHT_FRACTION.
-    val sheetHeight = with(LocalDensity.current) {
-        (board.viewportH * SHEET_HEIGHT_FRACTION).toDp()
     }
 
     Scaffold(
@@ -1573,21 +1604,15 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
             // ---- panels ----
             when (val open = panel) {
                 is Panel.NodeInfo -> NodeStore.byId(open.id)?.let { node ->
-                    // The sheet: a big rectangle over the bottom 70 % of the screen, with the node
-                    // itself pinned at its top. Behind it a scrim, so it reads as something laid over
-                    // the board — tapping the scrim closes it.
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.5f))
-                            .clickable { panel = null },
-                    )
+                    // The sheet (v0.17.0): a rectangle over the board with NO scrim behind it, so the
+                    // board stays visible AND movable while it is open, and a handle at its top that
+                    // resizes it. Saeed changed his mind about the old static, scrimmed version.
                     NodePanel(
                         node = node,
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .fillMaxWidth()
-                            .height(sheetHeight),
+                        modifier = Modifier.align(Alignment.BottomCenter),
+                        fraction = sheetFraction,
+                        viewportHeightPx = board.viewportH,
+                        onFraction = { sheetFraction = clampSheetFraction(it) },
                         onClose = { panel = null },
                         onOpenLink = { link -> panel = Panel.LinkInfo(link.id) },
                         onAddLink = { panel = Panel.Picker(node.id) },
@@ -1691,6 +1716,10 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                             }
                         },
                         onClose = { panel = null },
+                        modifier = Modifier.align(Alignment.BottomCenter),
+                        fraction = sheetFraction,
+                        viewportHeightPx = board.viewportH,
+                        onFraction = { sheetFraction = clampSheetFraction(it) },
                     )
                 }
 
@@ -1711,6 +1740,12 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                     showLabels = showLabels,
                     showMinimap = showMinimapPref,
                     defaultLinkKey = BoardPrefs.defaultLinkKey,
+                    // What a new node is born with (v0.17.0) — the node settings, in their own page.
+                    nodePriority = NodePrefs.priority,
+                    nodeShape = NodePrefs.shapeKey,
+                    nodeColor = NodePrefs.colorKey,
+                    nodeWidth = NodePrefs.width,
+                    nodeHeight = NodePrefs.height,
                     rootCount = NodeStore.rootIds(kind).size,
                     hiddenCount = hidden.size,
                     arrangedCount = nodes.count { it.arrange != null },
@@ -1720,6 +1755,10 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                     onShowLabels = { BoardPrefs.setShowLinkLabels(context, it) },
                     onShowMinimap = { BoardPrefs.setShowMinimap(context, it) },
                     onDefaultLink = { BoardPrefs.setDefaultLink(context, it) },
+                    onNodePriority = { NodePrefs.setPriority(context, it) },
+                    onNodeShape = { NodePrefs.setShape(context, it) },
+                    onNodeColor = { NodePrefs.setColor(context, it) },
+                    onNodeSize = { w, h -> NodePrefs.setSize(context, w, h) },
                     // The app-wide preferences have exactly one home; the board's settings point there
                     // instead of copying them (v0.16.0).
                     onOpenAppSettings = onOpenAppSettings,
@@ -1738,10 +1777,20 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
                         if (name.isNotEmpty()) {
                             NodeStore.updateNode(context, textNode.copy(name = name))
                             notice = context.getString(R.string.node_renamed, name)
+                        } else {
+                            // Saving nothing is the same decision as Cancel: the node that was created
+                            // for naming goes away again.
+                            cancelPendingCreation()
                         }
+                        // The node has a name now (or is gone), so it is no longer a pending creation.
+                        pendingCreation = null
                         textDialogFor = null
                     },
-                    onDismiss = { textDialogFor = null },
+                    onDismiss = {
+                        // Cancel really cancels (v0.17.0): a node created for naming is taken back.
+                        cancelPendingCreation()
+                        textDialogFor = null
+                    },
                 )
             }
 
@@ -1749,8 +1798,12 @@ fun runFragmentAction(actionKey: String, ids: List<String>, withLinks: Boolean, 
             if (notesNode != null) {
                 NodeNotesDialog(
                     node = notesNode,
-                    onAdd = { text ->
-                        NodeStore.addNote(context, notesNode.id, text)
+                    onAdd = { text, style ->
+                        NodeStore.addNote(context, notesNode.id, text, style)
+                        notice = context.getString(R.string.notes_saved)
+                    },
+                    onUpdate = { index, text, style ->
+                        NodeStore.setNote(context, notesNode.id, index, text, style)
                         notice = context.getString(R.string.notes_saved)
                     },
                     onRemove = { index -> NodeStore.removeNote(context, notesNode.id, index) },
@@ -1894,8 +1947,13 @@ private fun createLinkedNodeIn(
             id = id,
             kind = kind,
             name = context.getString(R.string.node_new_default),
-            priority = 3,
+            // The node settings decide what a fresh node is (v0.17.0).
+            priority = NodePrefs.priority,
             notes = emptyList(),
+            shape = NodePrefs.shapeKey,
+            color = NodePrefs.colorKey,
+            w = NodePrefs.width,
+            h = NodePrefs.height,
             createdAt = now,
             x = reference.x + StructureLayout.widthOf(reference) + 60f,
             y = reference.y + StructureLayout.heightOf(reference) + 24f,
@@ -2150,12 +2208,9 @@ private fun BoardNode(
     val linkCount = NodeStore.linksOf(node.id).size
     val density = LocalDensity.current
     val scheme = MaterialTheme.colorScheme
-    val role = node.color?.let { key -> LinkColor.values().firstOrNull { it.name.equals(key, true) } }
-    val container = if (role == null) {
-        scheme.surfaceVariant
-    } else {
-        lerp(scheme.surfaceVariant, themeRoleColor(scheme, role), 0.30f)
-    }
+    // v0.17.0: the colour may be a theme role or a colour the user built, so the card's tone comes
+    // from the one helper that understands both (NodeColour.kt).
+    val container = nodeContainerColor(scheme, node.color)
     val pill = node.shape == NodeStyle.SHAPE_PILL
     val padH = if (pill) Spacing.xxl else Spacing.m
     val padV = if (pill) Spacing.l else Spacing.m

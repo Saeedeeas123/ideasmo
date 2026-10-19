@@ -25,6 +25,7 @@ import com.saeed.ideasmo.core.log.AppLog
 import com.saeed.ideasmo.core.log.LogViewerScreen
 import com.saeed.ideasmo.core.model.NodeStore
 import com.saeed.ideasmo.core.prefs.BoardPrefs
+import com.saeed.ideasmo.core.prefs.NodePrefs
 import com.saeed.ideasmo.core.prefs.ThemePrefs
 import com.saeed.ideasmo.ui.board.BoardScreen
 import com.saeed.ideasmo.ui.components.NoticeBar
@@ -52,6 +53,8 @@ class MainActivity : ComponentActivity() {
         val moved = DriveStore.migrateLegacy(applicationContext)
         if (moved.isNotEmpty()) NodeStore.remapAttachments(applicationContext, moved)
         BoardPrefs.init(applicationContext)
+        // The node settings (v0.17.0): the defaults every new node starts with.
+        NodePrefs.init(applicationContext)
         enableEdgeToEdge()
         setContent {
             IdeasmoApp()

@@ -22,6 +22,16 @@ data class IdeaNode(
      * images and files, and the card must not show their content, only how many there are.
      */
     val notes: List<String> = emptyList(),
+    /**
+     * The style of each note, one entry per note in [notes] (v0.17.0): a `font:size` key from
+     * [NoteText], or nothing for the default. Kept beside the notes rather than inside them because
+     * font and size belong to the whole note, while bold and italic live in the text itself as
+     * markers — see [NoteText].
+     *
+     * Missing entries are normal: an older file has none at all, and a note added by a caller that
+     * does not care about style simply reads as the default.
+     */
+    val noteStyles: List<String> = emptyList(),
     /** Pictures, as paths inside the app's own storage. No limit. */
     val pictures: List<String> = emptyList(),
     /** Attached files, as paths inside the app's own storage. No limit. */
@@ -360,32 +370,59 @@ object NodeStore {
     // ---- what a node carries: notes, images, files (no limit on any of them) --
 
     /** Adds a note to a node. Empty text is refused. Returns true when it was added. */
-    fun addNote(context: Context, nodeId: String, text: String): Boolean {
+    fun addNote(
+        context: Context,
+        nodeId: String,
+        text: String,
+        style: String = NoteText.DEFAULT_STYLE,
+    ): Boolean {
         val clean = text.trim()
         val node = byId(nodeId) ?: return false
         if (clean.isEmpty()) return false
-        updateNode(context, node.copy(notes = node.notes + clean))
+        updateNode(
+            context,
+            node.copy(notes = node.notes + clean, noteStyles = paddedStyles(node) + style),
+        )
         AppLog.i("Node", "note added to '" + node.name + "' — now " + (node.notes.size + 1))
         return true
     }
 
-    /** Replaces one note in place. An empty text removes it. */
-    fun setNote(context: Context, nodeId: String, index: Int, text: String) {
+    /**
+     * The style list brought up to the same length as the notes before something is appended, so the
+     * two lists can never drift apart however the notes were created.
+     */
+    private fun paddedStyles(node: IdeaNode): List<String> =
+        List(node.notes.size) { index -> node.noteStyles.getOrNull(index) ?: NoteText.DEFAULT_STYLE }
+
+/** Replaces one note in place — text and, when given, its style. An empty text removes it. */
+    fun setNote(context: Context, nodeId: String, index: Int, text: String, style: String? = null) {
         val node = byId(nodeId) ?: return
         if (index !in node.notes.indices) return
         val next = node.notes.toMutableList()
+        val styles = paddedStyles(node).toMutableList()
         val clean = text.trim()
-        if (clean.isEmpty()) next.removeAt(index) else next[index] = clean
-        updateNode(context, node.copy(notes = next))
+        if (clean.isEmpty()) {
+            next.removeAt(index)
+            styles.removeAt(index)
+        } else {
+            next[index] = clean
+            if (style != null) styles[index] = style
+        }
+        updateNode(context, node.copy(notes = next, noteStyles = styles))
     }
-
     fun removeNote(context: Context, nodeId: String, index: Int) {
         val node = byId(nodeId) ?: return
         if (index !in node.notes.indices) return
         val next = node.notes.toMutableList()
         next.removeAt(index)
-        updateNode(context, node.copy(notes = next))
+        val styles = paddedStyles(node).toMutableList()
+        styles.removeAt(index)
+        updateNode(context, node.copy(notes = next, noteStyles = styles))
     }
+
+    /** The style of one note: what was stored, or the default when nothing was. */
+    fun noteStyleOf(node: IdeaNode, index: Int): String =
+        node.noteStyles.getOrNull(index) ?: NoteText.DEFAULT_STYLE
 
     /** Adds a picture the caller has already copied into the app's own storage. */
     fun addPicture(context: Context, nodeId: String, path: String) {
@@ -718,6 +755,8 @@ object NodeStore {
                             if (single.isNullOrBlank()) emptyList() else listOf(single)
                         },
                         files = readList(o, "files"),
+                        // v0.17.0: one style key per note; absent in older files, which is the default.
+                        noteStyles = readList(o, "noteStyles"),
                         createdAt = o.optLong("createdAt"),
                         x = if (hasPosition) o.optDouble("x", 0.0).toFloat() else (i % 2) * MIGRATION_COL_W,
                         y = if (hasPosition) o.optDouble("y", 0.0).toFloat() else (i / 2) * MIGRATION_ROW_H,
@@ -1006,6 +1045,7 @@ object NodeStore {
                 o.put("priority", n.priority)
                 // v0.12.0: three lists, no limit on any of them.
                 o.put("notes", JSONArray(n.notes))
+                o.put("noteStyles", JSONArray(n.noteStyles))
                 o.put("pictures", JSONArray(n.pictures))
                 o.put("files", JSONArray(n.files))
                 o.put("createdAt", n.createdAt)

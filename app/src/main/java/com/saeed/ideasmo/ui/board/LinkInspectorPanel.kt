@@ -77,6 +77,10 @@ internal fun LinkInspectorPanel(
     onDelete: () -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
+    /** How much of the viewport the sheet covers, and how to change it (v0.17.0). */
+    fraction: Float = SHEET_DEFAULT_FRACTION,
+    viewportHeightPx: Float = 0f,
+    onFraction: (Float) -> Unit = {},
 ) {
     val type = LinkCatalog.byKey(link.type)
     val fromName = NodeStore.nameOf(link.fromId)
@@ -92,33 +96,18 @@ internal fun LinkInspectorPanel(
     var family by remember(link.id) { mutableStateOf<LinkFamily?>(type.family) }
     var note by remember(link.id) { mutableStateOf(link.note ?: "") }
 
-    Surface(
-        modifier = modifier
-            .fillMaxSize()
-            .imePadding(),
-        color = MaterialTheme.colorScheme.surface,
+    BoardSheet(
+        // The same sheet as More and Connect (v0.17.0): tapping a relation on the board opens a
+        // rectangle over the board, not a screen that replaces it.
+        title = stringResource(R.string.link_inspector_title),
+        subtitle = LinkCatalog.sentence(type, fromName, toName, link.label),
+        fraction = fraction,
+        viewportHeightPx = viewportHeightPx,
+        onFraction = onFraction,
+        onClose = onClose,
+        modifier = modifier.imePadding(),
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = Spacing.l, end = Spacing.s, top = Spacing.s, bottom = Spacing.s),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = stringResource(R.string.link_inspector_title),
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f),
-                )
-                IconButton(onClick = onClose) {
-                    Icon(
-                        imageVector = Icons.Outlined.Close,
-                        contentDescription = stringResource(R.string.link_close),
-                    )
-                }
-            }
-
+        Column(modifier = Modifier.fillMaxWidth().weight(1f)) {
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()

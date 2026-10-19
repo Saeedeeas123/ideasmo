@@ -63,41 +63,29 @@ internal fun LinkPickerPanel(
     onCustom: (String) -> Unit,
     onOpenLink: (NodeLink) -> Unit,
     onClose: () -> Unit,
+    /** How much of the viewport the sheet covers, and how to change it (v0.17.0). */
+    fraction: Float = SHEET_DEFAULT_FRACTION,
+    viewportHeightPx: Float = 0f,
+    onFraction: (Float) -> Unit = {},
 ) {
     var customPhrase by remember { mutableStateOf("") }
     var query by remember { mutableStateOf("") }
     var family by remember { mutableStateOf<LinkFamily?>(null) }
     val existing = NodeStore.linksOf(fromNode.id)
 
-    Surface(
-        modifier = modifier
-            .fillMaxSize()
-            .imePadding(),
-        color = MaterialTheme.colorScheme.surface,
+    BoardSheet(
+        // The shared board sheet (v0.17.0): Connect opens the SAME rectangle as More — the board stays
+        // visible and movable behind it, and the handle resizes it. That is exactly what Saeed asked
+        // for ("look at how More works; this must work the same way").
+        title = stringResource(R.string.link_picker_title, fromNode.name),
+        subtitle = stringResource(R.string.link_picker_detail),
+        fraction = fraction,
+        viewportHeightPx = viewportHeightPx,
+        onFraction = onFraction,
+        onClose = onClose,
+        modifier = modifier.imePadding(),
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = Spacing.l, end = Spacing.s, top = Spacing.s, bottom = Spacing.s),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = stringResource(R.string.link_picker_title, fromNode.name),
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                IconButton(onClick = onClose) {
-                    Icon(
-                        imageVector = Icons.Outlined.Close,
-                        contentDescription = stringResource(R.string.link_close),
-                    )
-                }
-            }
-
+        Column(modifier = Modifier.fillMaxWidth().weight(1f)) {
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()

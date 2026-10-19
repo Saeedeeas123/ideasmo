@@ -836,3 +836,82 @@ new default-relation setting actually seed the connect flow; is the App row a se
 
 **Still open:** the Drive's trash browser and multi-select; folder copy; a Free branch laid out by the
 whole-map Arrange still goes to the right.
+
+## v0.17.0 — settings pages, a real board sheet, a text menu for notes, more shapes and any colour
+
+Six requests in one round, and every one of them is a thing the user touches directly.
+
+### 1. Settings, separated into pages
+Saeed: *"separate the categories — each one's settings must be its own place now; do not scatter them all
+in one screen. Board settings in one place, link settings in one place, node settings in one place, and the
+app's general settings in one place."* The project settings screen is now an **index** of five rows, each
+opening its own page: **Board** (spacing, minimap) · **Modes** (the 8 board modes + 6 themes) · **Links**
+(relation names, the relation a new link starts as) · **Nodes** (what a new node is born with) · **App**
+(the door to the app's own settings). The new **Nodes** page is backed by a new store, `core/prefs/NodePrefs`:
+default priority, shape, colour and size, read by both creation paths (the New Node form and
+SubNode/CoNode) so the defaults the user sets are what a new card actually gets.
+
+### 2. Cancel really cancels
+Saeed: *"when we tap Child/Sibling, if the user changes their mind and taps Cancel, it does not cancel and
+it is still created."* He was right, and the cause was structural: the node is created **before** the naming
+dialog — it has to be, so it can be positioned and linked — and nothing took it back. Now the created id is
+remembered (`pendingCreation`), and Cancel, Back, or saving an empty name removes the node, its link, the
+selection and the undo step that was pushed for it (`UndoStack.dropLast`). A node the user has since renamed
+is left alone.
+
+### 3. SubNode and CoNode
+`Child` is now **SubNode** and `Sibling` is **CoNode** — in the action box, in the catalogue (which is what
+the future model layer reads), and in the refusal message when a node has no parent.
+
+### 4. One board sheet — and the board behind it is alive
+Saeed: *"when Connect is tapped something like More must come up — a rectangle with the board still visible
+behind it; look at exactly how More works, this must work the same way. And the board behind it must be
+movable. I know I said before it should be static, but I have changed my mind: the rectangle comes with a
+handle that makes it smaller and larger lengthwise."*
+`ui/board/BoardSheet.kt` is that rectangle, and **all three panels** use it: the node sheet (More), the
+relation picker (Connect) and the link inspector. No scrim — so panning, zooming and tapping the board keep
+working while a panel is open — plus a drag handle that resizes the sheet between 30% and 92% of the viewport,
+and a pinned header so it always says what it is and can always be closed. The old fixed 70% height and its
+`SHEET_HEIGHT_FRACTION` are gone.
+
+### 5. A text menu for notes
+Saeed: *"when Note is chosen the user must have a simple text menu above the writing area — bold, italic,
+smaller and larger, a font choice, the normal things."* `core/model/NoteText.kt` holds the rules and
+`ui/board/NoteEditing.kt` the menu:
+
+- **Bold and italic are inline**, stored in the text as `**markers**`, so a note stays one plain string in
+  `IdeaNode.notes` and survives copy, the Drive export and the model layer. A marker that is never matched
+  stays **literal text** — a half-typed `**` cannot eat a sentence, and `2*3` keeps its star.
+- **Font and size belong to the note**: a new parallel list `IdeaNode.noteStyles` (persisted, aligned with
+  the notes, defaulting when absent) so an older file loads unchanged.
+- The dialog lists the notes **as they read** (markers applied, each in its own font and size), tapping one
+  loads it into the editor, and the editor shows a live preview. The Drive export writes the **plain** text.
+
+### 6. Nine shapes and any colour
+Shapes: the four originals plus **Soft, Circle, Octagon, Ticket, Leaf** — the last three drawn from paths
+measured against the card's real size, so a resized card keeps its shape.
+Colours: the five theme roles, **twelve preset colours**, and an **RGB builder** (three sliders, a live
+preview, the hex it will store). A custom colour is stored as `#RRGGBB` — the same kind of key a role is, so
+no model change was needed — and the card's tone is always the surface blended with the colour, which is what
+keeps the text readable whatever is chosen. One chooser (`ui/board/NodeColour.kt`) is used by the node's
+action box, the style sheet and the new Nodes settings page.
+
+**Verified:** `:app:testDebugUnitTest` **68/68 green** — the new `NoteTextTest` is 6 (markers become spans,
+formatting never loses text, bold is a toggle that survives its own re-application, an empty selection puts
+the caret between the markers, the style key reads back whatever is stored), NodeCatalogTest is 12 (two new:
+every shape has its own key and label; the colour catalogue has roles plus presets and any colour round-trips
+through `hexOf`/`rgbOf`/`parseHex` with channels clamped). Two existing expectations were updated with the
+change and the reason: an unknown colour key is now shown **as itself** instead of as "Default", and a
+half-typed marker is literal text instead of styling the rest of the note. `:app:assembleDebug` **BUILD
+SUCCESSFUL with 0 Kotlin warnings**; aapt2 badging versionCode 17 / versionName 0.17.0. The shipped APK was
+checked without a device: `resources.arsc` holds "SubNode", "CoNode", "Build a colour", "Smaller",
+"Preview", "All settings" and the Nodes page's detail line, and `classes*.dex` holds `noteStyles` and
+`node_color`.
+
+**Not verified:** the device. Look at: do the settings pages feel separate; does Cancel on SubNode/CoNode
+leave nothing behind; is Connect's rectangle the same thing as More, with the board alive behind it and the
+handle resizing it; does the note menu do what it says (bold, italic, size, font) and is the preview honest;
+do the new shapes look right on a resized card; does a custom colour stay readable in both day and night.
+
+**Still open:** the Drive's trash browser and multi-select; folder copy; a Free branch laid out by the
+whole-map Arrange still goes to the right.

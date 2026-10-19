@@ -170,6 +170,13 @@
     <string name="settings_default_link">Relation a new link starts as</string>
     <string name="settings_default_link_detail">%1$s — used when you start a new relation; the picker can still choose any other.</string>
     <string name="settings_app">App</string>
+    <string name="settings_board_page_detail">How this workspace behaves: the room the arrangement leaves, and what is drawn on top</string>
+    <string name="settings_modes_page_detail">The eight board modes and the six themes — pick by looking at them</string>
+    <string name="settings_links_page_detail">How relations are drawn, and which relation a new link starts as</string>
+    <string name="settings_nodes_page_detail">What a new node is born with — its priority, shape, colour and size</string>
+    <string name="settings_app_page_detail">The app itself: theme, help, logs and the version</string>
+    <string name="style_colour_custom_detail">A colour you built yourself (%1$s).</string>
+    <string name="link_picker_detail">Choose a relation, then tap the target node</string>
     <string name="settings_app_open">App settings</string>
     <string name="settings_app_open_detail">Theme, help, logs and the version</string>
     <string name="board_menu">Board commands</string>
@@ -308,8 +315,8 @@
     <string name="act_cut">Cut</string>
     <string name="act_paste">Paste</string>
     <string name="act_delete">Delete</string>
-    <string name="act_child">Child</string>
-    <string name="act_sibling">Sibling</string>
+    <string name="act_child">SubNode</string>
+    <string name="act_sibling">CoNode</string>
     <string name="act_duplicate">Duplicate</string>
     <string name="act_reattach">Reattach</string>
     <string name="act_resize">Resize</string>
@@ -343,7 +350,7 @@
     <string name="picture_removed">Picture removed</string>
 
     <!-- v0.8.0 · branch actions -->
-    <string name="no_parent_for_sibling">Nothing points at this node, so it has no parent — use Child instead</string>
+    <string name="no_parent_for_sibling">Nothing points at this node, so it has no parent — use SubNode instead</string>
     <string name="reattach_hint">Now tap the new parent for this branch</string>
     <string name="reattach_cancelled">Reattach cancelled</string>
     <string name="reattached">%1$s is now under %2$s</string>
@@ -461,4 +468,37 @@
     <string name="drive_no_results_detail">Try a shorter word, or clear the search to see the folder again.</string>
     <string name="note_to_drive">To Drive</string>
     <string name="note_to_drive_done">Saved as %1$s in the Drive</string>
+    <string name="note_edit">Edit</string>
+    <string name="note_editing">Editing note %1$d</string>
+    <string name="note_save">Save note</string>
+    <string name="note_stop_editing">Stop editing</string>
+    <string name="note_clear">Clear</string>
+    <string name="note_bold">Bold</string>
+    <string name="note_italic">Italic</string>
+    <string name="note_smaller">Smaller</string>
+    <string name="note_larger">Larger</string>
+    <string name="note_marker_hint">Bold and italic wrap the selection; font and size apply to the whole note.</string>
+    <string name="note_style_now">%1$s · %2$s</string>
+    <string name="note_style_line">%1$s · %2$s</string>
+    <string name="note_preview">Preview</string>
+    <string name="node_defaults_priority">Priority of a new node</string>
+    <string name="node_defaults_shape">Shape of a new node</string>
+    <string name="node_defaults_colour">Colour of a new node</string>
+    <string name="node_defaults_size">Size of a new node</string>
+    <string name="node_defaults_detail">Only what a NEW node is born with. Every node can still be changed on its own from its menu.</string>
+    <string name="settings_nodes">Nodes</string>
+    <string name="settings_open">Open</string>
+    <string name="settings_hub_detail">Each kind of setting has its own page: the board, the modes, the links, the nodes, and the app.</string>
+    <string name="settings_back_to_hub">All settings</string>
+    <string name="colour_custom">Custom colour</string>
+    <string name="colour_custom_title">Build a colour</string>
+    <string name="colour_red">Red</string>
+    <string name="colour_green">Green</string>
+    <string name="colour_blue">Blue</string>
+    <string name="colour_apply">Use this colour</string>
+    <string name="colour_hex">Hex</string>
+    <string name="colour_roles">Theme roles</string>
+    <string name="colour_presets">Colours</string>
+    <string name="act_subnode">SubNode</string>
+    <string name="act_conode">CoNode</string>
 </resources>

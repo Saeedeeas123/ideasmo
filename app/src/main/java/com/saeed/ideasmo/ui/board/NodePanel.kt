@@ -93,6 +93,10 @@ internal fun NodePanel(
     onDetails: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
+    /** How much of the viewport the sheet covers, and how to change it (v0.17.0). */
+    fraction: Float = SHEET_DEFAULT_FRACTION,
+    viewportHeightPx: Float = 0f,
+    onFraction: (Float) -> Unit = {},
 ) {
     val outgoing = NodeStore.linksOut(node.id)
     val incoming = NodeStore.linksIn(node.id)
@@ -119,63 +123,36 @@ internal fun NodePanel(
     val shownOut = outgoing.filter { matches(it) }
     val shownIn = incoming.filter { matches(it) }
 
-    val panelShape = RoundedCornerShape(topStart = Radius.large, topEnd = Radius.large)
-
-    Surface(
-        // The sheet: full width, sliding up from the bottom of the screen over a scrim, with the node
-        // itself pinned in a fixed header at the top (Saeed's order after the docked right panel was
-        // still too cramped to read: "make it a big rectangle covering 70 % of the screen from the
-        // bottom, with the node shown at its top, fixed").
-        modifier = modifier.imePadding().shadow(elevation = 12.dp, shape = panelShape),
-        color = MaterialTheme.colorScheme.surface,
-        shape = panelShape,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)),
-        tonalElevation = 3.dp,
+    BoardSheet(
+        // The shared board sheet (v0.17.0): the same rectangle Connect and the link inspector use, with
+        // the resize handle, the board still movable behind it, and the node pinned in its header —
+        // which was Saeed's earlier order ("a big rectangle with the node shown at its top, fixed").
+        title = node.name,
+        subtitle = stringResource(
+            R.string.node_panel_counts,
+            outgoing.size,
+            incoming.size,
+            subtree.size,
+        ),
+        fraction = fraction,
+        viewportHeightPx = viewportHeightPx,
+        onFraction = onFraction,
+        onClose = onClose,
+        modifier = modifier.imePadding(),
+        header = {
+            NodeCardBody(
+                node = node,
+                linkCount = outgoing.size + incoming.size,
+                hiddenBelow = if (node.collapsed) subtree.size else 0,
+                childCount = children.size,
+            )
+            HorizontalDivider(
+                modifier = Modifier.padding(top = Spacing.xs),
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+            )
+        },
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            // ---- the node, pinned: it does not scroll away with the details below it ----
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = Spacing.screenH, end = Spacing.s, top = Spacing.m),
-                    verticalAlignment = Alignment.Top,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        NodeCardBody(
-                            node = node,
-                            linkCount = outgoing.size + incoming.size,
-                            hiddenBelow = if (node.collapsed) subtree.size else 0,
-                            childCount = children.size,
-                        )
-                        Text(
-                            text = stringResource(
-                                R.string.node_panel_counts,
-                                outgoing.size,
-                                incoming.size,
-                                subtree.size,
-                            ),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = Spacing.s),
-                        )
-                    }
-                    IconButton(
-                        onClick = onClose,
-                        modifier = Modifier.size(Sizes.touchMin),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Close,
-                            contentDescription = stringResource(R.string.link_close),
-                        )
-                    }
-                }
-                HorizontalDivider(
-                    modifier = Modifier.padding(top = Spacing.s),
-                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
-                )
-            }
-
+        Column(modifier = Modifier.fillMaxWidth().weight(1f)) {
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()

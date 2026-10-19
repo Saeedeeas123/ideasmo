@@ -47,6 +47,20 @@ object UndoStack {
         AppLog.i("Undo", "stacked: " + label + " (depth " + entries.size + ")")
     }
 
+    /**
+     * Forgets the most recent step **without running it**.
+     *
+     * Used by a cancelled creation (v0.17.0). Tapping SubNode/CoNode creates the node first — it has to,
+     * so it can be positioned and linked — and if the user then cancels the naming dialog the node is
+     * removed again. The undo entry that was pushed for it has to go with it, or Undo would offer a
+     * step that does nothing.
+     */
+    fun dropLast() {
+        val dropped = entries.removeLastOrNull() ?: return
+        redoEntries.clear()
+        AppLog.i("Undo", "dropped: " + dropped.label + " (depth " + entries.size + ")")
+    }
+
     /** Runs the most recent entry. Returns its label, or null when there was nothing to undo. */
     fun undo(context: android.content.Context): String? {
         val entry = entries.removeLastOrNull() ?: run {

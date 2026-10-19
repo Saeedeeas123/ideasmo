@@ -91,16 +91,16 @@ object NodeActionCatalog {
                 "IdeaNode.name and stamps updatedAt. (This action used to be called Text.)",
         ),
         NodeAction(
-            CHILD, "Child", NodeActionGroup.Branch,
-            "Create a new node and link it as a child of this one, then name it. Parameters: name " +
+            CHILD, "SubNode", NodeActionGroup.Branch,
+            "Create a new node UNDER this one (a SubNode) and link it, then name it. Parameters: name " +
                 "(string), link type (defaults to LinkCatalog's neutral type). The box shows how many " +
                 "children the node already has.",
             mutatesStructure = true,
         ),
         NodeAction(
-            SIBLING, "Sibling", NodeActionGroup.Branch,
-            "Create a new node under the same parent as this one, then name it. Refused when this " +
-                "node has no parent (nothing points at it) — use Child instead.",
+            SIBLING, "CoNode", NodeActionGroup.Branch,
+            "Create a new node BESIDE this one, under the same parent (a CoNode), then name it. Refused " +
+                "when this node has no parent (nothing points at it) — use SubNode instead.",
             mutatesStructure = true,
         ),
         NodeAction(
