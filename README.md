@@ -1,34 +1,115 @@
 # Ideasmo
 
-An idea processor for Android: capture an idea, give it structure, keep it in one place.
+**A tool for idea makers.**
+
+Capture an idea, give it structure, keep it in one place. A touch-first **board** of node cards joined by
+**typed relations** — because an idea is rarely alone, and "this causes that" is not the same thing as
+"this contradicts that".
+
+Android · Kotlin · Jetpack Compose M3 · **offline** — no account, no cloud, no network permission.
 Personal project of Saeed (`com.saeed.ideasmo`), built entirely on-device.
 
 **Current version: v0.17.0** (versionCode 17)
 
-## What it is
+---
 
-A **board** you travel through with touch — pan with one finger, pinch to zoom, drag the node cards —
-with **typed relations** between the nodes. A relation is a sentence, not just a line: the catalog
-holds 7 families and 42 types ("depends on", "is a", "contradicts", "causes" …), each with its own
-line style, arrow mode and colour role.
+## Why it exists
 
-## Feature map (v0.6.0)
+Most note apps hand you a list, and a list has exactly one dimension: order. Ideas do not live in one
+dimension. They depend on each other, contradict each other, cause each other, and arrive in clusters
+rather than queues.
+
+The usual fix is a mind-map — which gives you lines, and a line says only "these two are connected".
+That is not what the thinking was. The thinking was *"this depends on that, and it contradicts the
+other thing I decided last month"*.
+
+So Ideasmo makes the relation the first-class object. A relation is a sentence with a type, a
+direction, a style and a colour role. The board is not a picture of the graph — **the board is the
+graph**, and every relation is editable where you find it.
+
+---
+
+## Where it is now (v0.17.0)
+
+**A complete, usable single-user tool.** The board works, the data persists, the model is stable, and
+the app has been through seventeen tagged versions and a long series of real device tests.
+
+What that means concretely:
+
+- **The board** — pan with one finger, pinch-zoom from 5 % to 200 %, drag node cards, eight surface
+  modes and six themes.
+- **The relations** — a catalog of **7 families and 42 types** ("depends on", "is a", "contradicts",
+  "causes" …), each with its own line style, arrow mode and colour role. Tap a link and the inspector
+  opens: change the type, swap the direction, override the colour, write your own phrase, or see the
+  other relations between the same pair.
+- **The nodes** — nine card shapes, seventeen colours (including an RGB builder), free-form resize,
+  and any number of notes, images and files attached to a node.
+- **The Drive** — one private file store for the whole app, with shelves (images, texts, documents,
+  audio, video, archives), recursive search, sort, and *open with…* so a PDF or a video opens in the
+  app that knows how to read it.
+- **The structure layer** — collapse a branch, mark central nodes, and **Arrange** a branch or the
+  whole map in a direction, anchored on the board's fixed origin.
+- **The logging** — a durable per-run log file plus an in-app viewer with filters, copy, share and
+  session history. This is a standing rule of the project, not a feature.
+
+Everything above is local. There is no server, no sync and no telemetry.
+
+---
+
+## Roadmap
+
+> This is current intent, in priority order — not a promise. Items move when a real device test says
+they should.
+
+### Next — decided, waiting on one answer or one decision
+
+| # | Item | What is actually blocking it |
+|---|---|---|
+| 1 | **Group** — put several nodes into one thing | One open question: is a group a **frame that holds** the selected nodes, or a **merge** of them into one node? The behaviour is specified; the model is not. |
+| 2 | **Schema** — per-branch direction stored on the node | Deferred on Saeed's instruction. Today *Arrange a branch* is a **command**, not a stored property, so the whole-map Arrange still lays everything out in the project direction. Schema is the other half of that. |
+| 3 | **Undo that survives a session** | Undo is memory-only and bounded to the last 12 steps; closing the app clears it. A persisted, deeper undo stack is the obvious next quality step. |
+
+### Later — agreed in principle, not scheduled
+
+- **Z — the third axis.** Currently reserved and not built: every node sits on layer 0 and Z only
+  decides drawing order. No raise/lower controls yet.
+- **A force-directed pass in Arrange.** Today Arrange is a **tree** layout: dense graphs with many
+  cross-links are tidied along their trees and the extra links stay where they are.
+- **An interactive minimap.** It travels with you today but does not accept input — deliberately left
+  alone so far.
+- **Visual verification tooling.** Paparazzi is unproven on this build toolchain, so the device install
+  is currently the only visual check. Closing that gap would speed up every UI change.
+
+### Explicitly not yet decided
+
+- Whether a project can hold **more than one board**.
+- Whether anything ever leaves the device.
+
+The second one is deliberate. Ideasmo is offline-first because the ideas are not the sort of thing you
+hand to a server, and because an idea tool that needs a network is a tool you cannot use in the moment
+you actually have the idea.
+
+---
+
+## Feature map
 
 | Area | What works |
 |---|---|
-| Board | Pan, pinch zoom 25–200 %, drag nodes, grid/pattern surface, travelling minimap, reset view, **origin marker + Origin button** |
-| Nodes | **Node action square**: four bars around the selected node — Text · Image · Connect · Notes · More / Copy · Cut · Paste · Delete / Child · Sibling · Duplicate · Reattach / Resize · Colour · Shape. Generated from `NodeActionCatalog` (every action has an id + description) |
-| Node style | Per-node size (4 steps), colour (5 theme roles), shape (4 shapes) — and the auto-layout measures each card, so a resized node gets its own space |
-| Data surface | Every node and link carries an id; **More → Details** shows a node as machine-readable text (fields, coordinates from the origin, links with ids) and copies it in one tap |
-| Links | Create from a node or from the link manager; **tap a link to open the inspector** |
-| Link inspector | Change the relation, swap its direction, override its colour, add your own phrase, see the other relations between the same pair, delete with Undo |
-| Node panel | **Links out** in stored branch order (up/down arrows, auto-order by name / priority / age) and **Links in**; every row opens the inspector |
-| Structure | Central nodes (more than one), collapse/expand a branch, move a subtree left/right/up/down, **Arrange** in Right / Left / Down / Up / Radial at Compact / Normal / Wide spacing — **anchored on the board origin**, with Undo |
-| Board modes | 8 surfaces — plain, grid, dots, graph paper, ruled lines, isometric, hex, blueprint — each with a live preview |
-| Board themes | App theme (day/night + dynamic colour), paper, warm, mint, charcoal, blueprint |
-| List view | The same nodes and the same relations, grouped into links out / links in, every row opening the inspector |
-| Settings | Day/night, Help, app logs, About |
-| Logging | Durable per-run log file + in-app log viewer with filters, copy, share, sessions (standing rule) |
+| Board | Pan, pinch zoom 5–200 %, drag nodes, 8 surface modes (plain, grid, dots, graph paper, ruled, isometric, hex, blueprint), travelling minimap, Fit, origin marker |
+| Nodes | Per-node name, priority, size, shape and colour; any number of **notes**, **images** and **files**; the card shows only small icons with counts, never the content |
+| Node action box | One rectangle above the selected node holding all sixteen actions in a 6-column grid: Name · SubNode · CoNode · Connect · Note · Image · Files · Shape · Colour · Resize · Copy · Cut · Paste · Delete · Reattach · More |
+| Relations | 7 families / 42 types, searchable picker with family chips, per-relation note, colour override, direction swap, custom phrase, jump-to-either-end |
+| Link inspector | Open by tapping any link on the board; shows the other relations between the same pair and deletes with Undo |
+| Node panel | Links out in stored branch order (with auto-order by name / priority / age) and links in; every row opens the inspector |
+| Structure | Central nodes, collapse/expand a branch, move a subtree, Arrange Right / Left / Down / Up / Radial at Compact / Normal / Wide spacing, anchored on the origin, with Undo |
+| Multi-select | Rubber band on the board (long press, then drag) and a group bar; dragging moves the whole selection |
+| View / Edit | A real read-only mode for showing a board without changing it |
+| The Drive | One private file store: shelves with live counts, folders, import, rename, move, copy, delete to `.trash`, recursive search, sort, *open with…* through a FileProvider |
+| Notes | A text menu — bold, italic, smaller/larger, font choice — with a live preview; formatting lives in the text as markers so nothing is lost on export |
+| Settings | An index of five pages — **Board · Modes · Links · Nodes · App** — one page each |
+| Logging | Durable per-run log file + in-app viewer with filters, copy, share and session history |
+
+---
 
 ## Build (on this device — proot Ubuntu ARM64)
 
@@ -46,6 +127,8 @@ chmod 644 /sdcard/Download/ideasmo-debug.apk
 
 The APK is installed manually by Saeed — that is the designed handoff (the agent has no install path).
 
+---
+
 ## Source map
 
 ```
@@ -55,15 +138,23 @@ app/src/main/java/com/saeed/ideasmo/
   core/model/LinkCatalog.kt    the 7 families / 42 relation types — single source of truth
   core/model/NodeStore.kt      nodes + links, JSON persistence, migration, structure operations
   core/model/StructureLayout.kt  the layout engine — pure Kotlin, JVM-tested
-  core/prefs/                  ThemePrefs, BoardPrefs
-  ui/board/                    BoardScreen, BoardListView, BoardPatterns, LinkDrawing,
-                               LinkInspectorPanel, LinkPickerPanel, NodePanel,
-                               ProjectSettingsPanel, NodeFormPanel
-  ui/components/               Defaults (shared components), GridTile
-  ui/home · ui/project · ui/settings · ui/help · ui/theme
-app/src/test/java/.../StructureLayoutTest.kt   10 JVM tests for the structure engine
-DESIGN.md                    the design contract (tokens, screens, decisions, honest limits)
+  core/model/NodeActionCatalog.kt  the sixteen node actions, each with an id + description
+  core/drive/                  DriveStore, DrivePaths (pure, JVM-tested), DriveOpen (FileProvider)
+  core/prefs/                  ThemePrefs, BoardPrefs, NodePrefs
+  ui/board/                    BoardScreen, BoardPatterns, LinkDrawing, LinkInspectorPanel,
+                               LinkPickerPanel, NodePanel, NodeActionBox, ProjectSettingsPanel,
+                               NodeFormPanel, NodeAttachments, NoteEditing, FragmentOptions
+  ui/drive/ ui/help/ ui/home/ ui/project/ ui/settings/ ui/theme/ ui/components/
+app/src/test/java/.../         JVM unit tests for the pure layers: the layout engine, drive paths,
+                               the link catalog, the node catalog, note text, fragments
+DESIGN.md                      the design contract (tokens, screens, decisions, honest limits)
 ```
+
+The rule the code follows: **anything that can be pure Kotlin is pure Kotlin and tested on the JVM.**
+The layout engine, the path rules, the catalogs and the text formatting have no Android dependency,
+which is why they can be tested without a device.
+
+---
 
 ## Version history
 
@@ -75,62 +166,49 @@ DESIGN.md                    the design contract (tokens, screens, decisions, ho
 | v0.4.0 | Node relations on the board + list view, travelling minimap, delete with Undo |
 | v0.5.0 | Full typed-relation system (7 families / 42 types), link manager, real Settings + Help |
 | v0.6.0 | Clickable/editable links (link inspector), node panel (links in/out + branch order), structure layer (central nodes, collapse, 5-direction Arrange), 8 board modes + 6 board themes |
-| v0.7.0 | **Board origin** — a fixed (0, 0) with a marker on the canvas; Arrange now anchors the central node on the origin (deterministic, cannot drift); Origin button; Show-the-origin setting. Fixed the v0.6.0 double-origin drift bug |
-| v0.8.0 | **Node action square** (four bars around the selected node) with 16 node actions from a catalog: rename, image, connect, notes, clipboard (copy/cut/paste), delete, child/sibling/duplicate, **reattach** (re-parent with cycle protection), resize/colour/shape — plus per-node style honoured by the layout, an app node clipboard, and a Details view that copies a node as machine-readable data |
-| v0.9.0 | **Back is a step** (dialog → panel → mode → tool → form → selection → leave); the action square is **relative to its node** (the whole square shifts as one unit); **tools inside the square** — free-form resize with handles on the card, an in-place colour palette and shape picker; per-node `w`/`h` in board units; **the toast is gone** (inline NoticeBar + an always-visible Undo button with a real undo stack); Copy/Cut/Duplicate ask whether **links / sub-links** travel; **multi-select + rubber band + group bar** (drag moves the whole selection); the node panel docks as a **rectangle on the right**; the ⊖/⊕ **collapse** control lives on the card |
+| v0.7.0 | **Board origin** — a fixed (0, 0) with a marker on the canvas; Arrange now anchors the central node on the origin (deterministic, cannot drift). Fixed the v0.6.0 double-origin drift bug |
+| v0.8.0 | **Node action square** (four bars around the selected node) with 16 node actions from a catalog — including **reattach** (re-parent with cycle protection) — plus per-node style honoured by the layout and a Details view that copies a node as machine-readable data |
+| v0.9.0 | **Back is a step**; the action square becomes **relative to its node**; **tools inside the square** (free-form resize, colour palette, shape picker); per-node `w`/`h` in board units; **the toast is gone** (inline NoticeBar + a real undo stack); Copy/Cut/Duplicate ask whether links travel; **multi-select + rubber band + group bar**; the collapse ⊖/⊕ control moves onto the card |
+| v0.10.0 | **The square scales with the board** and can never lose a bar; **resize handles shrink with the card**; **zoom out to 5 %**; the node panel becomes 40 % of the screen; **Arrange moves into the node's own properties**; the layout reserves the size each card really measures, so branches cannot overlap |
+| v0.11.0 | **One board space** — a node's stored position becomes board units (dp at 100 %), so the auto-layout, the link lines, the handles and the action box all agree with the card on screen. **The action box**: one rectangle above the node, 6-column grid, fixed size at every zoom. **The node sheet**: More opens a full-width rectangle over the bottom 70 %. **Standard link length** after an Arrange |
+| v0.12.0 | **Nodes carry lists**: any number of notes, images and files; the card shows only icons with counts. **Name** replaces Text; the box order becomes the current sixteen. **The list and graph buttons are gone** (the board is the graph); the toolbar is Fit · Undo \| − % + \| Redo · View/Edit; **View mode is read-only**; **Select nodes** with a drag window |
+| v0.13.0 | **The Drive** — one private file store for the whole app, and **it is the same storage the nodes use**: a file picked for a node is copied under `Attachments/<node>/`, and the pre-Drive folders are migrated in on first run so nothing is lost |
+| v0.14.0 | **The Drive's basic operations** — rename, move, copy, delete, recursive **search**, **sort** — plus **open with…** through a FileProvider, so PDFs, documents, audio and video finally open. A note can be saved into the Drive as a text file. **The insets bug is fixed for good** |
+| v0.15.0 | **The Drive is file-first**: shelves with live counts, and picking one lists every file of that kind wherever it sits. **Import follows the shelf.** **Priority moves up beside the Name**, the card's name is one line, and **Arrange moves into the node's own menu** with a **Free** option. **Links**: search + family chips, the relation's own note, jump-to-either-end, and a filter for a node with many relations |
+| v0.16.0 | **Settings hold settings.** The **Structure** group is gone and its board-wide **commands** (Arrange the map, Collapse all, Expand all) move to the board's own menu, where a command belongs. What is left is four groups of remembered preferences — **Board · Modes · Links · App** — and a dead `show_origin` preference is removed with it |
+| v0.17.0 | **Settings get their own pages** — an index of **Board · Modes · Links · Nodes · App**, one page each; the new **Nodes** page sets what a new node is born with. **Cancel now cancels** (the created-but-unnamed node is taken back, and Back does the same). **Child/Sibling are renamed SubNode/CoNode.** **Connect opens the same resizable board sheet as More.** **Notes get a text menu** (bold, italic, size, font) with a live preview. **Nine card shapes** and **seventeen colours**, including an RGB builder |
 
-| v0.10.0 | **The square scales with the board** (it is relative to its node at last) and can never lose a bar again — the viewport clamp is one real clamp, and at low zoom the bars drop their labels and become icon-only; **resize handles shrink with the card** and are capped by it (22 dp at 100 %, no more blobs beside a small card); **zoom out to 5 %** (5 % steps below a quarter); the docked node panel is **40 % of the screen** and tinted so it is actually distinguishable from the board; **Arrange moved into the node's own properties** — pick Left/Right/Up/Down for the selected node and only its branch is laid out, with the node itself staying put (the board's Arrange button is gone); the layout reserves the size each card **really measures**, so branches cannot overlap |
+---
 
-| v0.11.0 | **One board space** — a node's stored position is board units (dp at 100 %), so the auto-layout, the link lines, the resize handles and the action box all agree with the card on screen (v0.10.0 placed nodes at raw pixels while sizing cards in dp, which is what made the cards pile up, the links miss their nodes and the handles cluster); **the action box**: one rectangle above the node holding all sixteen actions in a 6-column grid, never scaling with the zoom; **the node sheet**: More opens a full-width rectangle over the bottom 70 % of the screen with the node itself pinned at its top; **standard link length**: every link after an Arrange is exactly one level gap, edge to edge, and a branch is slid clear of nodes that are not part of it; loose nodes are parked beside the whole-map arrangement |
+## Honest limits (v0.17.0)
 
-| v0.12.0 | **Nodes carry lists**: any number of **notes**, **images** and **files** (new action), each action showing its count, the card showing only small icons with counts — never the content; the collapse ⊖/⊕ moved to the start of the card row so a small card can no longer hide it; **Name** replaces Text; the box order is exactly Name · Child · Sibling · Connect · Note · Image · Files · Shape · Colour · Resize · Copy · Cut · Paste · Delete · Reattach · More (Duplicate moved to the node sheet); **the list and graph buttons are gone** (the board is the graph) and the toolbar is Fit · Undo | − % + | Redo · View/Edit; **View mode is read-only**; **Select nodes** next to New node — tap to add/remove, drag a window to select everything inside |
-
-| v0.13.0 | **The Drive** — one private file store for the whole app (`filesDir/drive`) with a light file manager: tappable breadcrumb, folders, import any file, new folder, delete (moved to `.trash`, nothing destroyed), and a viewer that opens images and text. **It is the same storage the nodes use**: a file picked for a node is copied into the Drive under `Attachments/<node>/`, and a node's Image/Files dialogs can attach a file that is already in the Drive. The pre-Drive `pics`/`files` folders are migrated in on first run and every stored attachment path is rewritten, so nothing is lost. |
-
-| v0.14.0 | **The Drive's basic operations**: rename, move (into any folder), make a copy, delete, **search** (recursive, by name) and **sort** (name / size / newest) — plus **open with…**: any file is handed to the app that knows how to read it through a FileProvider, so PDFs, documents, audio and video finally open. A **note can be saved into the Drive** as a text file. And the **insets bug is fixed for good**: every custom surface at the bottom of the screen (the Drive's action bar, the app's notice strip, the group bar) now carries the system-bar inset itself, so nothing hides under the home indicator again. |
-| v0.15.0 | **The Drive is file-first, the arrangement belongs to the node, and the links are sorted out.** The Drive's top row is now a set of **shelves** — All files · Images · Texts · Documents · Audio · Video · Archives · Other · Folders — each with a live count, and picking one lists **every file of that kind wherever it sits** (a picture attached to a node included). **Import follows the shelf**: add a file while Images is open and it is filed in `Images/`; from All or Folders the file's own kind decides, so it always lands in the right place. **Priority moved up beside the Name** on the card, the card's name is one line (a title, never a body of text — content is read by opening the node), and **Arrange moved out of the project settings into the node's own menu** as a direction chooser with a **Free** option: Free means you place it, a direction means the node carries its branch with it and the whole-map Arrange follows each tree's own direction. **Links**: search + family chips over the 42 relations (in the picker *and* in the inspector), a relation's own **note** (in the model since v0.12.0, never shown until now), jump-to-either-end buttons, a filter for a node with many relations, and two-line rows that read type-then-sentence. And the **bottom bars are back where they belong**: the v0.14.0 inset fix was reserving the navigation-bar inset even with nothing to show, which lifted every screen's bottom edge and padded the board's toolbar twice. |
-| v0.16.0 | **Settings hold settings.** Saeed's rule: *a feature is different from a setting*. The **Structure** group is gone — the arrangement moved into the node's own menu in v0.15.0, so it had nothing left of its own — and the board-wide **commands** that lived in it (Arrange the map, Collapse all, Expand all) moved to the board's own menu in the top bar, where a command belongs. What is left is four groups of remembered preferences: **Board** (spacing between levels, travelling minimap), **Modes** (the 8 board modes as live miniatures + the 6 themes), **Links** (relation names on the board, and the new **relation a new link starts as**, chosen with the same searchable chooser as everywhere else), and **App** (one door to the app's own settings — theme, help, logs, version — so the app-wide preferences have exactly one home). A dead setting was removed with it: the origin marker's `show_origin` preference had been unread since the marker was removed in v0.12.0. |
-| v0.17.0 | **Settings get their own pages, and the board gets a real sheet.** Settings is now an index — **Board · Modes · Links · Nodes · App** — one page each, so nothing is scattered; the new **Nodes** page sets what a NEW node is born with (priority, shape, colour, size). **Cancel now cancels**: tapping SubNode/CoNode created the node before the naming dialog, and cancelling left it behind — the created-but-unnamed node is taken back, and Back does the same. **Child/Sibling are renamed SubNode/CoNode.** **Connect opens the same rectangle as More**: one shared board sheet with no scrim (the board behind it stays visible AND movable) and a **handle that resizes it** — Saeed changed his mind about the static version. **Notes get a text menu**: bold, italic, smaller/larger and a font choice, with a live preview; bold/italic live in the text as markers (so nothing is lost on export) and font/size are stored per note. **Nine card shapes** (soft, circle, octagon, ticket, leaf added) and **seventeen colours** — five theme roles, twelve presets, plus an **RGB builder** that can make any colour at all. |
-
-## Honest limits (v0.14.0)
-
-- **Group** and **Schema** from the reference app are still not built: Schema is deferred on your
-  instruction, and Group is waiting on one answer — is a group a *frame that holds* the selected
-  nodes, or a *merge* of them into one node?
-- The rubber band needs a **long press** on empty board before dragging; nothing on screen says so
-  yet except the Help entry (the board's own hint text mentions it only when the board is empty).
-- Resize handles are drawn on the card and can be partly covered by the bars when a node is very
-  small; the corner handles stay reachable. Their **visible** circle shrinks with the card (capped at a
-  third of it) while an invisible touch margin keeps them draggable.
-- Undo is **memory-only** and bounded to the last 12 steps; closing the app clears it.
-- The auto-layout now reserves the size each card **really measures** (the board reports it while it
-  draws), so a card that grows with its content no longer makes siblings overlap — but the measurement
-  only exists for cards the board has already drawn on this run.
-- The clipboard is the **app's own** (nodes, not text) and lives in memory only.
-- **Opening this build re-reads your existing board in the new unit.** Positions used to be treated as
-  raw pixels; they are now board units (dp at 100 %), which is what makes the spacing correct relative
-  to the cards. The effect is that everything spreads out (~2.6x on this phone) and stops overlapping —
-  the stored numbers themselves are not touched, and one *Arrange* re-tidies the map in the new space.
-- The action box is a **fixed size at every zoom**, on purpose: at 5 % it therefore looks large next to
-  a very small node. That is the trade for buttons that are always tappable — the previous proportional
-  square was smaller but unreadable.
-- **Arrange a branch is a command, not a stored property**: the chosen direction is not saved on the
-  node, so the project-level *Arrange now* (in the project settings) still lays the whole map out in
-  the project direction. Storing a per-branch direction is the open half of the deferred **Schema**
-  question.
+- **Group** and **Schema** are still not built. Group is waiting on one answer (frame vs merge); Schema
+  is deferred on Saeed's instruction.
+- **Undo is memory-only**, bounded to the last 12 steps; closing the app clears it.
+- **Z is reserved, not built**: every node is on layer 0 and Z only decides drawing order.
+- **Arrange is a tree layout.** Dense graphs with many cross-links are tidied along their trees and
+  the extra links stay where they are — there is no force-directed pass yet.
+- **Arrange a branch is a command, not a stored property**, so the whole-map Arrange still lays the map
+  out in the project direction.
 - A branch that cannot find clear space after 40 steps (a very dense board) keeps its ideal position
-  instead of moving further; the whole-map Arrange parks loose nodes to the **left** of the result.
-- The board's Arrange button is gone on purpose; the whole-map Arrange now lives only in the project
-  settings.
-- Arrange is a **tree** layout: dense graphs with many cross-links are tidied along their trees and the
-  extra links stay where they are (no force-directed pass yet).
-- Arrange moves the map to the **origin**; if you had deliberately parked a map somewhere else in board
-  space, use Undo or drag it back (the origin is the intended home for a structured map).
-- Z (the third axis) is **reserved, not built**: every node is on layer 0 and Z only decides drawing
-  order. No raise/lower controls yet.
-- The minimap is not interactive (deliberate — ordered left alone).
-- No multi-select, no rubber-band selection, no node resize, and **no node edit after creation**.
-- Collapse hides a subtree from the board and the list; a badge, the node panel's Expand or *Expand
-  all* bring it back.
-- No visual verification tooling (Paparazzi is unproven on this toolchain): the device install is the
-  only visual check.
+  instead of moving further.
+- **Arrange moves the map to the origin.** If you had deliberately parked a map elsewhere in board
+  space, use Undo or drag it back.
+- The **rubber band needs a long press** on empty board before dragging; nothing on screen says so yet
+  except the Help entry.
+- The **action box is a fixed size at every zoom**, on purpose: at 5 % it looks large next to a very
+  small node. That is the trade for buttons that are always tappable.
+- **Resize handles** are drawn on the card and can be partly covered by the bars when a node is very
+  small; the corner handles stay reachable, and an invisible touch margin keeps them draggable.
+- The **clipboard is the app's own** (nodes, not text) and lives in memory only.
+- The **minimap is not interactive** (deliberate — ordered left alone).
+- **No visual verification tooling**: Paparazzi is unproven on this toolchain, so the device install is
+  the only visual check.
+- Opening the v0.11.0+ build re-reads an existing board in the new unit (positions are board units, not
+  raw pixels), so everything spreads out and stops overlapping. The stored numbers are not touched, and
+  one *Arrange* re-tidies the map in the new space.
+
+---
+
+<sub>Built on a phone, with an agent, one version at a time. The full design contract — tokens,
+ screens, every decision and its reason — is in [`DESIGN.md`](DESIGN.md).</sub>
